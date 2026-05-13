@@ -26,6 +26,7 @@ OPT_ARCHIVE_FOLDER: Final = "archive_folder"
 OPT_DELETE_AFTER_DAYS: Final = "delete_after_days"
 OPT_SCAN_WINDOW_DAYS: Final = "scan_window_days"
 OPT_MAX_BACKFILL: Final = "max_backfill_emails"
+OPT_SENDER_ALLOWLIST: Final = "sender_allowlist"
 
 # Cleanup mode values
 CLEANUP_LEAVE: Final = "leave_in_place"
@@ -45,6 +46,11 @@ DEFAULT_ARCHIVE_FOLDER: Final = "Archive/OKTE"
 DEFAULT_DELETE_AFTER_DAYS: Final = 30
 DEFAULT_SCAN_WINDOW_DAYS: Final = 30
 DEFAULT_MAX_BACKFILL: Final = 1000
+# Comma-separated list of sender addresses. Empty string = no filtering.
+# Default is OKTE's documented production sender; users who rely on
+# mailbox forwarding may need to either switch to auto-forwarding (which
+# preserves the original From) or add their forwarder to this list.
+DEFAULT_SENDER_ALLOWLIST: Final = "edc@okte.sk"
 
 # IMAP custom keyword used to mark processed messages
 PROCESSED_KEYWORD: Final = "$OkteProcessed"
@@ -113,6 +119,21 @@ def detect_role(eic: str) -> str:
     if PRODUCER_EIC_RE.match(eic):
         return ROLE_PRODUCER
     return ROLE_OFFTAKE
+
+
+def parse_sender_allowlist(raw: str | None) -> list[str]:
+    """Parse the comma-separated sender allowlist option.
+
+    Returns a list of lowercased addresses. An empty/None input returns
+    an empty list, which means "do not filter".
+    """
+    if not raw:
+        return []
+    return [
+        item.strip().lower()
+        for item in raw.split(",")
+        if item.strip()
+    ]
 
 
 def short_eic(eic: str) -> str:

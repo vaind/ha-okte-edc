@@ -26,11 +26,17 @@ from .const import (
     CONF_PASSWORD,
     CONF_USERNAME,
     DOMAIN,
+    OPT_ARCHIVE_FOLDER,
+    OPT_SENDER_ALLOWLIST,
     short_eic,
 )
 from .coordinator import OkteCoordinator
 
 ENTRY_REDACT = {CONF_PASSWORD, CONF_USERNAME, CONF_HOST, CONF_FOLDER}
+# User-supplied strings that may carry PII. archive_folder can name a
+# real person ("Inbox/JohnSmith/OKTE"); sender_allowlist may include the
+# user's own forwarder address.
+OPTIONS_REDACT = {OPT_ARCHIVE_FOLDER, OPT_SENDER_ALLOWLIST}
 
 
 def _redact_eic(eic: str) -> str:
@@ -101,7 +107,7 @@ async def async_get_config_entry_diagnostics(
     return {
         "entry": {
             "data": entry_data,
-            "options": dict(entry.options),
+            "options": async_redact_data(dict(entry.options), OPTIONS_REDACT),
         },
         "enabled_eics": _redact_keyed_by_eic(coordinator.enabled_eics),
         "last_processed_versions": _redact_eic_tuple_keys(

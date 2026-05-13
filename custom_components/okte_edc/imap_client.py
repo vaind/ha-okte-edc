@@ -20,6 +20,7 @@ import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import Message
+from email.utils import parseaddr
 from typing import Iterable, Iterator
 
 from .const import (
@@ -63,6 +64,7 @@ class FetchedMessage:
 
     uid: bytes
     subject: str
+    sender: str  # lowercased email address parsed from the From header
     attachments: list[Attachment]
 
 
@@ -137,8 +139,14 @@ class ImapSession:
             raw = raw.encode()
         msg = email.message_from_bytes(raw)
         subject = _decode_header(msg.get("Subject", ""))
+        sender = _extract_sender_address(msg.get("From", ""))
         attachments = list(_extract_okte_attachments(msg))
-        return FetchedMessage(uid=uid, subject=subject, attachments=attachments)
+        return FetchedMessage(
+            uid=uid,
+            subject=subject,
+            sender=sender,
+            attachments=attachments,
+        )
 
     # ----- state mutations ---------------------------------------------
 
@@ -322,6 +330,20 @@ def _decode_header(raw: str) -> str:
         return str(make_header(decode_header(raw)))
     except Exception:  # noqa: BLE001
         return raw
+
+
+def _extract_sender_address(raw: str) -> str:
+    """Return the lowercased email address from a possibly RFC2047-encoded From header.
+
+    Strips display name (``"OKTE <edc@okte.sk>"`` → ``edc@okte.sk``). Returns
+    ``""`` when the header is missing or unparseable; callers should treat
+    that as "unknown sender" and apply their own policy.
+    """
+    if not raw:
+        return ""
+    decoded = _decode_header(raw)
+    _, address = parseaddr(decoded)
+    return address.strip().lower()
 
 
 def _extract_okte_attachments(msg: Message) -> Iterator[Attachment]:

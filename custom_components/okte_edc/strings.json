@@ -69,7 +69,8 @@
           "email_cleanup": "Post-processing email cleanup",
           "archive_folder": "Archive folder (when cleanup = archive)",
           "delete_after_days": "Delete after N days (when cleanup = delete)",
-          "scan_window_days": "Mailbox scan window (days)"
+          "scan_window_days": "Mailbox scan window (days)",
+          "sender_allowlist": "Sender allowlist (comma-separated, blank = no filter)"
         }
       },
       "rescan": {

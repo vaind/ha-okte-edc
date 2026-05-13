@@ -58,13 +58,20 @@ see [LICENSE](./LICENSE).
   silently stop importing data or import it incorrectly until a fix is
   released.
 - **Trusted-mailbox assumption.** The integration matches messages by
-  subject substring and attachment filename — it does *not* verify the
-  sender, DKIM, or SPF. Anyone who can deliver mail to the configured
-  mailbox and who knows an enabled EIC can in principle inject fake
-  settlement data and pollute the Energy dashboard. Defense in depth:
-  use a dedicated mailbox whose address is not public, and don't
-  publish EICs you've enabled in the integration. (Stricter sender
-  validation may land in a later release.)
+  subject substring and attachment filename, and applies a configurable
+  **sender allowlist** (defaulting to `edc@okte.sk`) — it does *not*
+  verify DKIM/SPF or sign-verify the payload. The allowlist alone
+  doesn't prove the message actually came from OKTE; someone with the
+  ability to spoof the `From` header and deliver into your mailbox
+  could still inject fake data. Defense in depth: use a dedicated
+  mailbox whose address is not public, keep the allowlist populated,
+  and don't publish EICs you've enabled.
+
+  If you rely on manual mail forwarding (the `Fwd:` kind that rewrites
+  the From header to you) instead of automatic forwarding (which
+  preserves the original sender), add your own forwarder address to
+  the allowlist — or clear the allowlist entirely to disable sender
+  filtering.
 - **No support guarantee.** This is a hobbyist project. Issues may take
   time to be triaged or may not be fixed at all.
 

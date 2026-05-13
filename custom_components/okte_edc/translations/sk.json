@@ -69,7 +69,8 @@
           "email_cleanup": "Čistenie e-mailov po spracovaní",
           "archive_folder": "Archívny priečinok (pri čistení = archív)",
           "delete_after_days": "Vymazať po N dňoch (pri čistení = vymazať)",
-          "scan_window_days": "Okno prehľadávania schránky (v dňoch)"
+          "scan_window_days": "Okno prehľadávania schránky (v dňoch)",
+          "sender_allowlist": "Povolení odosielatelia (čiarkami oddelené, prázdne = bez filtra)"
         }
       },
       "rescan": {

@@ -6,8 +6,11 @@ import email
 import email.message
 import gzip
 
-from okte_edc.const import FILENAME_RE
-from okte_edc.imap_client import _extract_okte_attachments
+from okte_edc.const import FILENAME_RE, parse_sender_allowlist
+from okte_edc.imap_client import (
+    _extract_okte_attachments,
+    _extract_sender_address,
+)
 
 
 def _make_email(filenames: list[tuple[str, bytes]]) -> email.message.Message:
@@ -84,3 +87,38 @@ def test_extract_attachments_rejects_zip_bomb_like_gzip():
     gz = gzip.compress(big)
     msg = _make_email([("24ZZS00000000001_20260503_D_V1.xml.gz", gz)])
     assert list(_extract_okte_attachments(msg)) == []
+
+
+# Sender extraction & allowlist parsing
+
+
+def test_extract_sender_plain_address():
+    assert _extract_sender_address("edc@okte.sk") == "edc@okte.sk"
+
+
+def test_extract_sender_with_display_name():
+    assert (
+        _extract_sender_address('"OKTE EDC" <edc@okte.sk>') == "edc@okte.sk"
+    )
+
+
+def test_extract_sender_lowercases():
+    assert _extract_sender_address("EDC@OKTE.SK") == "edc@okte.sk"
+
+
+def test_extract_sender_missing_header_returns_empty():
+    assert _extract_sender_address("") == ""
+
+
+def test_parse_sender_allowlist_basic():
+    assert parse_sender_allowlist("edc@okte.sk") == ["edc@okte.sk"]
+    assert parse_sender_allowlist(
+        "edc@okte.sk, FORWARDER@example.com"
+    ) == ["edc@okte.sk", "forwarder@example.com"]
+
+
+def test_parse_sender_allowlist_empty():
+    assert parse_sender_allowlist("") == []
+    assert parse_sender_allowlist(None) == []
+    assert parse_sender_allowlist("   ") == []
+    assert parse_sender_allowlist(", ,,") == []

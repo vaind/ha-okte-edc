@@ -34,6 +34,7 @@ from .const import (
     DEFAULT_POLL_WINDOW_START,
     DEFAULT_PORT,
     DEFAULT_SCAN_WINDOW_DAYS,
+    DEFAULT_SENDER_ALLOWLIST,
     DEFAULT_USE_SSL,
     DOMAIN,
     OPT_ARCHIVE_FOLDER,
@@ -44,6 +45,7 @@ from .const import (
     OPT_POLL_WINDOW_END,
     OPT_POLL_WINDOW_START,
     OPT_SCAN_WINDOW_DAYS,
+    OPT_SENDER_ALLOWLIST,
 )
 from .coordinator import discover_eics
 from .imap_client import (
@@ -221,8 +223,12 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for eic, role in self._discovered
         ]
         entry_data = {**self._user_data, CONF_EICS: eic_records}
+        # Title intentionally omits the username (a likely email address).
+        # Users with multiple OKTE mailboxes can rename in the HA UI;
+        # the unique_id (username@host:port) still disambiguates entries
+        # internally.
         return self.async_create_entry(
-            title=self._user_data[CONF_USERNAME],
+            title=f"OKTE EDC ({self._user_data[CONF_HOST]})",
             data=entry_data,
         )
 
@@ -362,6 +368,12 @@ class OkteOptionsFlow(config_entries.OptionsFlow):
                     OPT_SCAN_WINDOW_DAYS, DEFAULT_SCAN_WINDOW_DAYS
                 ),
             ): vol.All(int, vol.Range(min=1, max=3650)),
+            vol.Optional(
+                OPT_SENDER_ALLOWLIST,
+                default=opts.get(
+                    OPT_SENDER_ALLOWLIST, DEFAULT_SENDER_ALLOWLIST
+                ),
+            ): str,
         }
         for record in existing_eics:
             eic = record["eic"]

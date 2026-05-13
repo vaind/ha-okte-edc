@@ -49,6 +49,7 @@ from .const import (
     DEFAULT_POLL_WINDOW_END,
     DEFAULT_POLL_WINDOW_START,
     DEFAULT_SCAN_WINDOW_DAYS,
+    DEFAULT_SENDER_ALLOWLIST,
     DOMAIN,
     OPT_ARCHIVE_FOLDER,
     OPT_DELETE_AFTER_DAYS,
@@ -59,6 +60,7 @@ from .const import (
     OPT_POLL_WINDOW_END,
     OPT_POLL_WINDOW_START,
     OPT_SCAN_WINDOW_DAYS,
+    OPT_SENDER_ALLOWLIST,
     RECONCILIATION_THRESHOLD_KWH,
     ROLE_OFFTAKE,
     ROLE_PRODUCER,
@@ -67,6 +69,7 @@ from .const import (
     SUFFIX_LAST_IMPORT,
     SUFFIX_RECONCILIATION_DELTA,
     detect_role,
+    parse_sender_allowlist,
     short_eic,
 )
 from .imap_client import (
@@ -202,6 +205,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         max_backfill = int(
             self.entry.options.get(OPT_MAX_BACKFILL, DEFAULT_MAX_BACKFILL)
         )
+        sender_allowlist = parse_sender_allowlist(
+            self.entry.options.get(
+                OPT_SENDER_ALLOWLIST, DEFAULT_SENDER_ALLOWLIST
+            )
+        )
 
         session = self._client.open_session()
         try:
@@ -239,6 +247,19 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             for uid in uids:
                 msg = session.fetch_message(uid)
                 if msg is None:
+                    continue
+                if sender_allowlist and msg.sender not in sender_allowlist:
+                    _LOGGER.warning(
+                        "Rejecting UID %s: sender %r not in allowlist %r — "
+                        "the message will not be processed. Adjust the "
+                        "sender allowlist in the integration options if "
+                        "this is a legitimate forwarder.",
+                        uid,
+                        msg.sender or "<unknown>",
+                        sender_allowlist,
+                    )
+                    # Don't mark as processed; if the user later adjusts
+                    # the allowlist the message can still be picked up.
                     continue
                 if not msg.attachments:
                     _LOGGER.debug(
