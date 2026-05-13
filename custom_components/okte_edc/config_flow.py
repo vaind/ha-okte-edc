@@ -83,6 +83,7 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._user_data: dict[str, Any] = {}
         self._folders: list[str] = []
         self._discovered: list[tuple[str, str]] = []
+        self._discovered_senders: list[str] = []
         self._reauth_entry: config_entries.ConfigEntry | None = None
 
     # ----- user step ---------------------------------------------------
@@ -157,7 +158,7 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         try:
-            discovered = await self.hass.async_add_executor_job(
+            result = await self.hass.async_add_executor_job(
                 discover_eics,
                 self._user_data[CONF_HOST],
                 self._user_data[CONF_PORT],
@@ -177,8 +178,16 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "unknown"
         else:
             self._user_data = {**self._user_data, CONF_FOLDER: user_input[CONF_FOLDER]}
-            self._discovered = discovered
-            if not discovered:
+            self._discovered = result.eics
+            self._discovered_senders = result.senders
+            _LOGGER.debug(
+                "Discovery: %d subject-matched messages, %d unique EICs, "
+                "senders=%s",
+                result.matched_uid_count,
+                len(result.eics),
+                result.senders,
+            )
+            if not result.eics:
                 errors["base"] = "no_eics_found"
             else:
                 return await self.async_step_discover_eics()
@@ -223,6 +232,18 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for eic, role in self._discovered
         ]
         entry_data = {**self._user_data, CONF_EICS: eic_records}
+        # Seed the sender allowlist with the From addresses we actually
+        # saw during discovery — this auto-handles users who forward
+        # OKTE mail from another mailbox (their forwarder address ends
+        # up here). Falls back to the documented OKTE address only if
+        # we didn't observe any sender at all.
+        initial_options = {
+            OPT_SENDER_ALLOWLIST: (
+                ", ".join(self._discovered_senders)
+                if self._discovered_senders
+                else DEFAULT_SENDER_ALLOWLIST
+            ),
+        }
         # Title intentionally omits the username (a likely email address).
         # Users with multiple OKTE mailboxes can rename in the HA UI;
         # the unique_id (username@host:port) still disambiguates entries
@@ -230,6 +251,7 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=f"OKTE EDC ({self._user_data[CONF_HOST]})",
             data=entry_data,
+            options=initial_options,
         )
 
     # ----- reauth ------------------------------------------------------
@@ -419,7 +441,7 @@ class OkteOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is None:
             try:
-                self._discovered = await self.hass.async_add_executor_job(
+                result = await self.hass.async_add_executor_job(
                     discover_eics,
                     self.config_entry.data[CONF_HOST],
                     self.config_entry.data[CONF_PORT],
@@ -435,7 +457,9 @@ class OkteOptionsFlow(config_entries.OptionsFlow):
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected error during rescan")
                 return self.async_abort(reason="unknown")
-            if not self._discovered:
+            self._discovered = result.eics
+            self._discovered_senders = result.senders
+            if not result.eics:
                 return self.async_abort(reason="no_eics_found")
 
         existing_eics = {
@@ -486,4 +510,21 @@ class OkteOptionsFlow(config_entries.OptionsFlow):
                 CONF_EICS: list(merged.values()),
             },
         )
-        return self.async_create_entry(title="", data=self.config_entry.options)
+        # Merge any newly observed senders into the existing allowlist
+        # so an additional forwarder picked up by the rescan doesn't get
+        # silently rejected at the next poll. The user can still prune
+        # via the regular options screen.
+        new_options = dict(self.config_entry.options)
+        if self._discovered_senders:
+            existing_allow = {
+                s.strip().lower()
+                for s in (
+                    new_options.get(OPT_SENDER_ALLOWLIST, "") or ""
+                ).split(",")
+                if s.strip()
+            }
+            merged_allow = sorted(
+                existing_allow | set(self._discovered_senders)
+            )
+            new_options[OPT_SENDER_ALLOWLIST] = ", ".join(merged_allow)
+        return self.async_create_entry(title="", data=new_options)

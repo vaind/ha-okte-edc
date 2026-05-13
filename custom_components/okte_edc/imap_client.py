@@ -87,6 +87,7 @@ class ImapSession:
     def search_unprocessed_uids(self) -> list[bytes]:
         """Return UIDs of messages matching the OKTE subject that are not yet processed."""
         criteria = self._unprocessed_criteria()
+        _LOGGER.debug("IMAP SEARCH: %s", criteria)
         typ, data = self._conn.uid("SEARCH", None, *criteria)
         if typ != "OK":
             raise ImapConnectionError(f"UID SEARCH failed: {typ} {data!r}")
@@ -98,17 +99,19 @@ class ImapSession:
         """Return UIDs of messages matching the OKTE subject delivered on/after ``since``.
 
         Used by the discovery flow to enumerate EICs without consulting
-        any processed-state flag.
+        any processed-state flag. IMAP ``SUBJECT`` is a case-insensitive
+        substring match (RFC 3501 §6.4.4), so a value like
+        ``Fwd: Re: [EDC_SZE_7/SZE] …`` still matches our literal.
         """
         since_str = since.strftime("%d-%b-%Y")
-        typ, data = self._conn.uid(
-            "SEARCH",
-            None,
+        criteria = [
             "SUBJECT",
-            SUBJECT_SUBSTRING,
+            _imap_quote(SUBJECT_SUBSTRING),
             "SINCE",
             since_str,
-        )
+        ]
+        _LOGGER.debug("IMAP SEARCH: %s", criteria)
+        typ, data = self._conn.uid("SEARCH", None, *criteria)
         if typ != "OK" or not data or not data[0]:
             return []
         return data[0].split()
@@ -162,7 +165,7 @@ class ImapSession:
         Returns True on success, False if the folder doesn't exist (caller
         falls back to leave-in-place for this run).
         """
-        typ, _ = self._conn.uid("COPY", uid, archive_folder)
+        typ, _ = self._conn.uid("COPY", uid, _imap_quote(archive_folder))
         if typ != "OK":
             _LOGGER.warning(
                 "Archive copy to %s failed for UID %s", archive_folder, uid
@@ -193,15 +196,19 @@ class ImapSession:
     # ----- internals ----------------------------------------------------
 
     def _unprocessed_criteria(self) -> list[str]:
+        # Wrap SUBJECT in IMAP quoted-string syntax — the literal value
+        # `[EDC_SZE_7/SZE]` contains `[` and `]` which aren't valid in a
+        # bare IMAP atom and silently break the search on most servers.
+        subject_arg = _imap_quote(SUBJECT_SUBSTRING)
         if self.keyword_supported:
             return [
                 "NOT",
                 "KEYWORD",
                 PROCESSED_KEYWORD,
                 "SUBJECT",
-                SUBJECT_SUBSTRING,
+                subject_arg,
             ]
-        return ["UNSEEN", "SUBJECT", SUBJECT_SUBSTRING]
+        return ["UNSEEN", "SUBJECT", subject_arg]
 
 
 class ImapClient:
@@ -321,6 +328,19 @@ def _detect_keyword_support(conn: imaplib.IMAP4, select_data: list[bytes]) -> bo
         "falling back to \\Seen for processed-tracking."
     )
     return False
+
+
+def _imap_quote(value: str) -> str:
+    """Wrap ``value`` in an IMAP quoted-string (RFC 3501 §4.3).
+
+    Quoted strings escape ``"`` and ``\\`` with a leading backslash. Bare
+    IMAP atoms can't contain ``[``, ``]``, ``{``, ``}``, ``(``, ``)``,
+    spaces, or many other punctuation characters, so any user-controlled
+    or punctuation-bearing argument we pass to ``UID SEARCH`` / ``UID
+    COPY`` / similar must use this helper.
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _decode_header(raw: str) -> str:

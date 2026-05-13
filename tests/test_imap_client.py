@@ -10,6 +10,7 @@ from okte_edc.const import FILENAME_RE, parse_sender_allowlist
 from okte_edc.imap_client import (
     _extract_okte_attachments,
     _extract_sender_address,
+    _imap_quote,
 )
 
 
@@ -122,3 +123,20 @@ def test_parse_sender_allowlist_empty():
     assert parse_sender_allowlist(None) == []
     assert parse_sender_allowlist("   ") == []
     assert parse_sender_allowlist(", ,,") == []
+
+
+# IMAP quoting
+
+
+def test_imap_quote_brackets():
+    """The integration subject contains `[` and `]` — without quoting the IMAP
+    server treats it as an invalid atom and silently returns nothing."""
+    assert _imap_quote("[EDC_SZE_7/SZE]") == '"[EDC_SZE_7/SZE]"'
+
+
+def test_imap_quote_escapes_quotes_and_backslash():
+    assert _imap_quote('a"b\\c') == '"a\\"b\\\\c"'
+
+
+def test_imap_quote_folder_with_slash():
+    assert _imap_quote("Archive/OKTE") == '"Archive/OKTE"'

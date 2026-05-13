@@ -18,6 +18,7 @@ State held in memory:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -446,6 +447,15 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 # Discovery (used by config flow)
 
 
+@dataclass
+class DiscoveryResult:
+    """Outcome of a single mailbox scan during config / options flow."""
+
+    eics: list[tuple[str, str]]  # sorted [(eic, role)]
+    senders: list[str]  # unique, lowercased, sorted From addresses
+    matched_uid_count: int  # how many subject-matched messages were inspected
+
+
 def discover_eics(
     host: str,
     port: int,
@@ -456,30 +466,44 @@ def discover_eics(
     *,
     scan_window_days: int = DEFAULT_SCAN_WINDOW_DAYS,
     max_messages: int = 100,
-) -> list[tuple[str, str]]:
-    """Connect to IMAP and return ``[(eic, role)]`` of EICs found in matching emails.
+) -> DiscoveryResult:
+    """Connect to IMAP and discover EICs + observed senders.
 
     Runs synchronously; callers wrap in an executor job. The session is
     opened and closed within this function.
+
+    Returned senders are deduped and lowercased, drawn from the From
+    headers of every subject-matching message. Empty / unparseable From
+    is skipped. The config flow seeds the sender_allowlist option with
+    this list so forwarded mailboxes work out of the box.
     """
     client = ImapClient(host, port, username, password, folder, use_ssl)
     session = client.open_session()
     discovered: dict[str, str] = {}
+    senders: set[str] = set()
+    matched_count = 0
     try:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=scan_window_days)
         uids = session.search_recent_subject(cutoff)
+        matched_count = len(uids)
         if max_messages and len(uids) > max_messages:
             uids = uids[-max_messages:]
         for uid in uids:
             msg = session.fetch_message(uid)
             if msg is None:
                 continue
+            if msg.sender:
+                senders.add(msg.sender)
             for att in msg.attachments:
                 if att.eic not in discovered:
                     discovered[att.eic] = detect_role(att.eic)
     finally:
         session.close()
-    return sorted(discovered.items())
+    return DiscoveryResult(
+        eics=sorted(discovered.items()),
+        senders=sorted(senders),
+        matched_uid_count=matched_count,
+    )
 
 
 # ---------------------------------------------------------------------------
