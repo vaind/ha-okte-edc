@@ -11,6 +11,7 @@ venv/
 *.egg-info/
 build/
 dist/
+.env
 
 # Real OKTE fixtures (never commit)
 tests/fixtures/real/
