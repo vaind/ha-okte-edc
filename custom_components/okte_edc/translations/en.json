@@ -1,0 +1,112 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "OKTE EDC mailbox",
+        "description": "Enter the IMAP credentials for the mailbox receiving OKTE settlement emails.",
+        "data": {
+          "host": "IMAP server",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "use_ssl": "Use SSL"
+        }
+      },
+      "folder": {
+        "title": "Choose IMAP folder",
+        "description": "Choose the folder OKTE settlement emails are delivered to.",
+        "data": {
+          "folder": "Folder"
+        }
+      },
+      "discover_eics": {
+        "title": "Choose metering points",
+        "description": "Found these EICs in recent OKTE emails. Select which to import.",
+        "data": {
+          "eics": "Metering points"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate OKTE EDC",
+        "description": "The IMAP credentials no longer work. Enter the new password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the IMAP server.",
+      "invalid_auth": "Authentication failed.",
+      "folder_not_found": "The selected folder does not exist on the server.",
+      "no_eics_found": "No OKTE emails found in this mailbox in the configured scan window.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This mailbox is already configured.",
+      "reauth_successful": "Re-authentication succeeded.",
+      "cannot_connect": "Could not connect to the IMAP server.",
+      "invalid_auth": "Authentication failed.",
+      "no_eics_found": "No OKTE emails found in this mailbox.",
+      "unknown": "An unexpected error occurred."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OKTE EDC options",
+        "menu_options": {
+          "options": "Edit polling and cleanup options",
+          "rescan": "Rescan mailbox for new metering points"
+        }
+      },
+      "options": {
+        "title": "Polling and cleanup",
+        "data": {
+          "poll_interval_minutes": "Polling interval (minutes)",
+          "poll_window_start": "Polling window start",
+          "poll_window_end": "Polling window end",
+          "poll_timezone": "Polling window timezone",
+          "email_cleanup": "Post-processing email cleanup",
+          "archive_folder": "Archive folder (when cleanup = archive)",
+          "delete_after_days": "Delete after N days (when cleanup = delete)",
+          "scan_window_days": "Mailbox scan window (days)"
+        }
+      },
+      "rescan": {
+        "title": "Rescan metering points",
+        "description": "Re-select which metering points to import.",
+        "data": {
+          "eics": "Metering points"
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Could not connect to the IMAP server.",
+      "invalid_auth": "Authentication failed.",
+      "no_eics_found": "No OKTE emails found in this mailbox.",
+      "unknown": "An unexpected error occurred."
+    }
+  },
+  "selector": {
+    "email_cleanup": {
+      "options": {
+        "leave_in_place": "Leave in place",
+        "archive": "Move to archive folder",
+        "delete_after_days": "Delete after N days"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "grid_import": { "name": "Grid import" },
+      "shared_in": { "name": "Shared (imported)" },
+      "total_consumption": { "name": "Total consumption" },
+      "grid_return": { "name": "Grid export (sold)" },
+      "shared_out": { "name": "Shared (exported)" },
+      "total_export": { "name": "Total export" },
+      "last_import": { "name": "Last import" },
+      "file_version": { "name": "File version" },
+      "reconciliation_delta": { "name": "Reconciliation delta" }
+    }
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Schránka OKTE EDC",
+        "description": "Zadajte IMAP prihlasovacie údaje pre schránku, do ktorej prichádzajú zúčtovacie e-maily OKTE.",
+        "data": {
+          "host": "IMAP server",
+          "port": "Port",
+          "username": "Používateľské meno",
+          "password": "Heslo",
+          "use_ssl": "Použiť SSL"
+        }
+      },
+      "folder": {
+        "title": "Výber IMAP priečinka",
+        "description": "Vyberte priečinok, do ktorého chodia zúčtovacie e-maily OKTE.",
+        "data": {
+          "folder": "Priečinok"
+        }
+      },
+      "discover_eics": {
+        "title": "Výber odberných miest",
+        "description": "V nedávnych e-mailoch OKTE boli nájdené tieto EIC kódy. Vyberte, ktoré chcete importovať.",
+        "data": {
+          "eics": "Odberné miesta"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Opätovné prihlásenie OKTE EDC",
+        "description": "IMAP prihlasovacie údaje už nefungujú. Zadajte nové heslo.",
+        "data": {
+          "password": "Heslo"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nepodarilo sa pripojiť k IMAP serveru.",
+      "invalid_auth": "Prihlásenie sa nepodarilo.",
+      "folder_not_found": "Zadaný priečinok na serveri neexistuje.",
+      "no_eics_found": "V tejto schránke neboli v zadanom okne nájdené žiadne e-maily od OKTE.",
+      "unknown": "Vyskytla sa neočakávaná chyba."
+    },
+    "abort": {
+      "already_configured": "Táto schránka je už nakonfigurovaná.",
+      "reauth_successful": "Opätovné prihlásenie prebehlo úspešne.",
+      "cannot_connect": "Nepodarilo sa pripojiť k IMAP serveru.",
+      "invalid_auth": "Prihlásenie sa nepodarilo.",
+      "no_eics_found": "V tejto schránke neboli nájdené žiadne e-maily od OKTE.",
+      "unknown": "Vyskytla sa neočakávaná chyba."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nastavenia OKTE EDC",
+        "menu_options": {
+          "options": "Upraviť parametre kontroly a čistenia",
+          "rescan": "Znova prehľadať schránku pre nové odberné miesta"
+        }
+      },
+      "options": {
+        "title": "Kontrola schránky a čistenie",
+        "data": {
+          "poll_interval_minutes": "Interval kontroly (v minútach)",
+          "poll_window_start": "Začiatok okna kontroly",
+          "poll_window_end": "Koniec okna kontroly",
+          "poll_timezone": "Časové pásmo okna kontroly",
+          "email_cleanup": "Čistenie e-mailov po spracovaní",
+          "archive_folder": "Archívny priečinok (pri čistení = archív)",
+          "delete_after_days": "Vymazať po N dňoch (pri čistení = vymazať)",
+          "scan_window_days": "Okno prehľadávania schránky (v dňoch)"
+        }
+      },
+      "rescan": {
+        "title": "Opätovné prehľadanie odberných miest",
+        "description": "Vyberte, ktoré odberné miesta sa majú importovať.",
+        "data": {
+          "eics": "Odberné miesta"
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Nepodarilo sa pripojiť k IMAP serveru.",
+      "invalid_auth": "Prihlásenie sa nepodarilo.",
+      "no_eics_found": "V tejto schránke neboli nájdené žiadne e-maily od OKTE.",
+      "unknown": "Vyskytla sa neočakávaná chyba."
+    }
+  },
+  "selector": {
+    "email_cleanup": {
+      "options": {
+        "leave_in_place": "Ponechať v schránke",
+        "archive": "Presunúť do archívneho priečinka",
+        "delete_after_days": "Vymazať po N dňoch"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "grid_import": { "name": "Odber zo siete" },
+      "shared_in": { "name": "Prijatá zdieľaná elektrina" },
+      "total_consumption": { "name": "Celková spotreba" },
+      "grid_return": { "name": "Prebytok do siete" },
+      "shared_out": { "name": "Zdieľaná elektrina (odovzdaná)" },
+      "total_export": { "name": "Celkový export" },
+      "last_import": { "name": "Posledný import" },
+      "file_version": { "name": "Verzia súboru" },
+      "reconciliation_delta": { "name": "Odchýlka rekonciliácie" }
+    }
+  }
+}

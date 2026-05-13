@@ -1,0 +1,12 @@
+{
+  "domain": "okte_edc",
+  "name": "OKTE EDC (Slovak electricity sharing)",
+  "version": "0.1.0",
+  "codeowners": ["@dlugosi"],
+  "config_flow": true,
+  "documentation": "https://github.com/dlugosi/ha-okte-edc",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/dlugosi/ha-okte-edc/issues",
+  "requirements": ["defusedxml>=0.7.1"],
+  "min_ha_version": "2024.6.0"
+}
