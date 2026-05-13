@@ -100,6 +100,13 @@ RECONCILIATION_THRESHOLD_KWH: Final = 1e-3
 # residential energy quantity above this is almost certainly a parser bug).
 QUARTER_KWH_SANITY_CEILING: Final = 1000.0
 
+# Size caps. Real OKTE SZE_7 daily files are ~85 KB raw / ~12 KB gzipped.
+# These caps bound the worst-case memory cost of a poisoned or malformed
+# attachment fed in through email, while leaving 20x+ headroom over the
+# real shape.
+MAX_RAW_ATTACHMENT_BYTES: Final = 2 * 1024 * 1024     # 2 MB raw / gzipped
+MAX_DECOMPRESSED_XML_BYTES: Final = 10 * 1024 * 1024  # 10 MB decompressed
+
 
 def detect_role(eic: str) -> str:
     """Return producer/offtake based on the EIC's prefix."""

@@ -57,6 +57,14 @@ see [LICENSE](./LICENSE).
   filename format, MSCONS structure, or LIN codes, this integration may
   silently stop importing data or import it incorrectly until a fix is
   released.
+- **Trusted-mailbox assumption.** The integration matches messages by
+  subject substring and attachment filename — it does *not* verify the
+  sender, DKIM, or SPF. Anyone who can deliver mail to the configured
+  mailbox and who knows an enabled EIC can in principle inject fake
+  settlement data and pollute the Energy dashboard. Defense in depth:
+  use a dedicated mailbox whose address is not public, and don't
+  publish EICs you've enabled in the integration. (Stricter sender
+  validation may land in a later release.)
 - **No support guarantee.** This is a hobbyist project. Issues may take
   time to be triaged or may not be fixed at all.
 

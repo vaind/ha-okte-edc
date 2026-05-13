@@ -65,3 +65,22 @@ def test_extract_attachments_decompresses_gz():
 def test_extract_attachments_ignores_non_matching_filenames():
     msg = _make_email([("random.txt", b"data"), ("readme.pdf", b"more")])
     assert list(_extract_okte_attachments(msg)) == []
+
+
+def test_extract_attachments_rejects_oversized_raw_payload():
+    """A multi-megabyte raw attachment is dropped without decompression."""
+    from okte_edc.const import MAX_RAW_ATTACHMENT_BYTES
+
+    huge = b"X" * (MAX_RAW_ATTACHMENT_BYTES + 1)
+    msg = _make_email([("24ZZS00000000001_20260503_D_V1.xml", huge)])
+    assert list(_extract_okte_attachments(msg)) == []
+
+
+def test_extract_attachments_rejects_zip_bomb_like_gzip():
+    """A gzip whose decompressed size exceeds the cap is dropped."""
+    from okte_edc.const import MAX_DECOMPRESSED_XML_BYTES
+
+    big = b"A" * (MAX_DECOMPRESSED_XML_BYTES + 1024)
+    gz = gzip.compress(big)
+    msg = _make_email([("24ZZS00000000001_20260503_D_V1.xml.gz", gz)])
+    assert list(_extract_okte_attachments(msg)) == []

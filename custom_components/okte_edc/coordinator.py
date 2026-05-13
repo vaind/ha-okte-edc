@@ -330,6 +330,21 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 # parser fix on next release picks it up.
                 continue
 
+            # Defense-in-depth: the filename gates the enabled-EIC allowlist
+            # check above, but the XML PLACE_ID is what we'd actually write
+            # statistics for. A spoofed file could declare one EIC in the
+            # name and another in the payload to write under an EIC the user
+            # didn't enable — reject the mismatch.
+            if att.eic.upper() != data.eic.upper():
+                _LOGGER.warning(
+                    "Attachment %s declares EIC %s in filename but %s in "
+                    "XML PLACE_ID; rejecting to prevent EIC spoofing",
+                    att.filename,
+                    att.eic,
+                    data.eic,
+                )
+                continue
+
             try:
                 self._import_data(att, data, updates)
             except Exception as exc:  # noqa: BLE001

@@ -175,6 +175,13 @@ def test_dst_fall_back_yields_100_quarters():
 # Reconciliation
 
 
+def test_parse_rejects_oversized_payload():
+    from okte_edc.const import MAX_RAW_ATTACHMENT_BYTES
+
+    with pytest.raises(MsconsParseError, match="exceeds raw cap"):
+        parse_mscons(b"<MSCONS>" + b"x" * (MAX_RAW_ATTACHMENT_BYTES + 1))
+
+
 def test_role_sanity_check_overrides_eic_pattern_when_lins_disagree():
     """If the EIC says producer but the file carries offtake LINs, trust the LINs.
 

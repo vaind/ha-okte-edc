@@ -24,6 +24,8 @@ from typing import Iterable, Iterator
 
 from .const import (
     FILENAME_RE,
+    MAX_DECOMPRESSED_XML_BYTES,
+    MAX_RAW_ATTACHMENT_BYTES,
     PROCESSED_KEYWORD,
     SUBJECT_SUBSTRING,
 )
@@ -342,9 +344,17 @@ def _extract_okte_attachments(msg: Message) -> Iterator[Attachment]:
             continue
         if raw is None:
             continue
+        if len(raw) > MAX_RAW_ATTACHMENT_BYTES:
+            _LOGGER.warning(
+                "Skipping attachment %s: raw size %d exceeds cap %d",
+                filename,
+                len(raw),
+                MAX_RAW_ATTACHMENT_BYTES,
+            )
+            continue
         if filename.lower().endswith(".gz"):
             try:
-                payload = gzip.decompress(raw)
+                payload = _safe_gunzip(raw)
             except OSError as exc:
                 _LOGGER.warning(
                     "Failed to gunzip %s: %s", filename, exc
@@ -352,6 +362,14 @@ def _extract_okte_attachments(msg: Message) -> Iterator[Attachment]:
                 continue
         else:
             payload = raw
+        if len(payload) > MAX_DECOMPRESSED_XML_BYTES:
+            _LOGGER.warning(
+                "Skipping attachment %s: decompressed size %d exceeds cap %d",
+                filename,
+                len(payload),
+                MAX_DECOMPRESSED_XML_BYTES,
+            )
+            continue
         yield Attachment(
             filename=filename,
             eic=match.group("eic").upper(),
@@ -360,6 +378,29 @@ def _extract_okte_attachments(msg: Message) -> Iterator[Attachment]:
             payload=payload,
             raw_payload=raw,
         )
+
+
+def _safe_gunzip(raw: bytes) -> bytes:
+    """Decompress gzip data, bailing out at ``MAX_DECOMPRESSED_XML_BYTES``.
+
+    Streaming-decompress so we can stop reading early when a malformed
+    or maliciously crafted .gz expands far beyond a real OKTE file's
+    size (which is on the order of 100 KB).
+    """
+    import io
+
+    out = bytearray()
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+        while True:
+            chunk = gz.read(64 * 1024)
+            if not chunk:
+                break
+            out.extend(chunk)
+            if len(out) > MAX_DECOMPRESSED_XML_BYTES:
+                raise OSError(
+                    f"gzip output exceeds cap ({MAX_DECOMPRESSED_XML_BYTES} bytes)"
+                )
+    return bytes(out)
 
 
 def file_date_to_iso(file_date: str) -> str:

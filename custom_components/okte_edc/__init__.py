@@ -18,6 +18,13 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OKTE EDC from a config entry."""
+    if not entry.data.get("use_ssl", True):
+        _LOGGER.warning(
+            "OKTE EDC: IMAP SSL is disabled for %s — the password is being "
+            "sent over the network in plaintext. Re-add the integration "
+            "with SSL enabled unless you specifically need plaintext IMAP.",
+            entry.title,
+        )
     coordinator = OkteCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 

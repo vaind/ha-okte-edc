@@ -26,6 +26,8 @@ from .const import (
     LIN_PM15,
     LIN_PS15,
     LIN_SHA15,
+    MAX_DECOMPRESSED_XML_BYTES,
+    MAX_RAW_ATTACHMENT_BYTES,
     QUARTER_KWH_SANITY_CEILING,
     ROLE_OFFTAKE,
     ROLE_PRODUCER,
@@ -50,6 +52,24 @@ _BASIC_ISO_RE = re.compile(r"^(\d{12})([A-Z]{2,5})$")
 
 class MsconsParseError(ValueError):
     """Raised when an MSCONS XML payload cannot be parsed."""
+
+
+def _safe_gunzip(raw: bytes) -> bytes:
+    """Streaming gunzip with a hard cap, mirroring the IMAP client's safeguard."""
+    import io
+
+    out = bytearray()
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+        while True:
+            chunk = gz.read(64 * 1024)
+            if not chunk:
+                break
+            out.extend(chunk)
+            if len(out) > MAX_DECOMPRESSED_XML_BYTES:
+                raise MsconsParseError(
+                    f"gzip output exceeds cap ({MAX_DECOMPRESSED_XML_BYTES} bytes)"
+                )
+    return bytes(out)
 
 
 @dataclass(frozen=True)
@@ -84,9 +104,24 @@ def parse_mscons(payload: bytes | str) -> DailyData:
     """Parse a single MSCONS XML payload.
 
     ``payload`` may be raw XML bytes/text or gzipped XML bytes (auto-detected).
+    Raises :class:`MsconsParseError` if the payload (raw or decompressed)
+    exceeds the configured size caps; this bounds the worst-case memory
+    cost of a crafted attachment that slipped through the IMAP client's
+    own caps.
     """
-    if isinstance(payload, bytes) and payload[:2] == b"\x1f\x8b":
-        payload = gzip.decompress(payload)
+    if isinstance(payload, bytes):
+        if len(payload) > MAX_RAW_ATTACHMENT_BYTES:
+            raise MsconsParseError(
+                f"Payload size {len(payload)} exceeds raw cap "
+                f"{MAX_RAW_ATTACHMENT_BYTES}"
+            )
+        if payload[:2] == b"\x1f\x8b":
+            payload = _safe_gunzip(payload)
+        if len(payload) > MAX_DECOMPRESSED_XML_BYTES:
+            raise MsconsParseError(
+                f"Decompressed XML size {len(payload)} exceeds cap "
+                f"{MAX_DECOMPRESSED_XML_BYTES}"
+            )
     try:
         root = fromstring(payload)
     except Exception as exc:  # defusedxml wraps multiple parse errors
