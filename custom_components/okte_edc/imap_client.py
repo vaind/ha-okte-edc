@@ -86,35 +86,73 @@ class ImapSession:
 
     def search_unprocessed_uids(self) -> list[bytes]:
         """Return UIDs of messages matching the OKTE subject that are not yet processed."""
-        criteria = self._unprocessed_criteria()
-        _LOGGER.debug("IMAP SEARCH: %s", criteria)
-        typ, data = self._conn.uid("SEARCH", None, *criteria)
-        if typ != "OK":
-            raise ImapConnectionError(f"UID SEARCH failed: {typ} {data!r}")
-        if not data or not data[0]:
-            return []
-        return data[0].split()
+        state_filter = self._unprocessed_state_criteria()
+        uids = self._search_with_subject_filter(*state_filter)
+        return uids
 
     def search_recent_subject(self, since: datetime) -> list[bytes]:
         """Return UIDs of messages matching the OKTE subject delivered on/after ``since``.
 
         Used by the discovery flow to enumerate EICs without consulting
-        any processed-state flag. IMAP ``SUBJECT`` is a case-insensitive
-        substring match (RFC 3501 §6.4.4), so a value like
-        ``Fwd: Re: [EDC_SZE_7/SZE] …`` still matches our literal.
+        any processed-state flag.
         """
         since_str = since.strftime("%d-%b-%Y")
-        criteria = [
-            "SUBJECT",
-            _imap_quote(SUBJECT_SUBSTRING),
-            "SINCE",
-            since_str,
+        return self._search_with_subject_filter("SINCE", since_str)
+
+    def _search_with_subject_filter(self, *extra: str) -> list[bytes]:
+        """Run UID SEARCH across multiple subject-filter variants and union the results.
+
+        Real-world IMAP servers vary in how they handle SUBJECT and TEXT
+        searches against tokens with punctuation like ``[EDC_SZE_7/SZE]``:
+
+        - Most RFC-3501-compliant servers accept ``SUBJECT "[…]"`` and
+          do case-insensitive substring matching.
+        - Some servers (observed in the wild) reject ``SUBJECT`` entirely
+          with ``Only TEXT keyword is currently supported``.
+        - Some servers' fulltext implementation tokenizes on punctuation,
+          so ``TEXT "[EDC_SZE_7/SZE]"`` matches nothing even though the
+          string is present in the message.
+
+        We try three variants — narrow ``SUBJECT`` first, then ``TEXT``
+        full pattern, then ``TEXT`` on the longest punctuation-free
+        token (``EDC_SZE_7``) — and union the UIDs from every variant
+        the server accepts. False positives are caught downstream by
+        the attachment filename regex and the EIC cross-check, so a
+        slightly wider net is harmless.
+        """
+        uids: set[bytes] = set()
+        last_error: object = None
+        for criteria in self._subject_filter_variants():
+            full_criteria = [*criteria, *extra]
+            _LOGGER.debug("IMAP SEARCH: %s", full_criteria)
+            try:
+                typ, data = self._conn.uid(
+                    "SEARCH", None, *full_criteria
+                )
+            except imaplib.IMAP4.error as exc:
+                last_error = exc
+                continue
+            if typ != "OK":
+                last_error = data
+                continue
+            if data and data[0]:
+                uids.update(data[0].split())
+        if not uids and last_error is not None:
+            _LOGGER.debug(
+                "No matches across search variants; last error: %r",
+                last_error,
+            )
+        return sorted(uids)
+
+    @staticmethod
+    def _subject_filter_variants() -> list[list[str]]:
+        full_pattern = _imap_quote(SUBJECT_SUBSTRING)
+        narrow_token = _imap_quote("EDC_SZE_7")
+        return [
+            ["SUBJECT", full_pattern],
+            ["TEXT", full_pattern],
+            ["TEXT", narrow_token],
         ]
-        _LOGGER.debug("IMAP SEARCH: %s", criteria)
-        typ, data = self._conn.uid("SEARCH", None, *criteria)
-        if typ != "OK" or not data or not data[0]:
-            return []
-        return data[0].split()
 
     def search_processed_before(self, before: datetime) -> list[bytes]:
         """Return UIDs of already-processed messages older than ``before``."""
@@ -195,20 +233,15 @@ class ImapSession:
 
     # ----- internals ----------------------------------------------------
 
-    def _unprocessed_criteria(self) -> list[str]:
-        # Wrap SUBJECT in IMAP quoted-string syntax — the literal value
-        # `[EDC_SZE_7/SZE]` contains `[` and `]` which aren't valid in a
-        # bare IMAP atom and silently break the search on most servers.
-        subject_arg = _imap_quote(SUBJECT_SUBSTRING)
+    def _unprocessed_state_criteria(self) -> list[str]:
+        """Return just the processed-state half of the search criteria.
+
+        Combined with the (potentially multi-variant) subject filter by
+        :meth:`_search_with_subject_filter`.
+        """
         if self.keyword_supported:
-            return [
-                "NOT",
-                "KEYWORD",
-                PROCESSED_KEYWORD,
-                "SUBJECT",
-                subject_arg,
-            ]
-        return ["UNSEEN", "SUBJECT", subject_arg]
+            return ["NOT", "KEYWORD", PROCESSED_KEYWORD]
+        return ["UNSEEN"]
 
 
 class ImapClient:

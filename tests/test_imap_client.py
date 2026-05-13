@@ -140,3 +140,22 @@ def test_imap_quote_escapes_quotes_and_backslash():
 
 def test_imap_quote_folder_with_slash():
     assert _imap_quote("Archive/OKTE") == '"Archive/OKTE"'
+
+
+def test_subject_filter_variants_are_progressively_broader():
+    """Three variants, narrow → broad: SUBJECT-full, TEXT-full, TEXT-token.
+
+    The last variant uses a punctuation-free token so it still matches
+    on servers whose fulltext implementation tokenizes the subject
+    around ``[``/``]``/``/``.
+    """
+    from okte_edc.imap_client import ImapSession
+
+    variants = ImapSession._subject_filter_variants()
+    assert len(variants) == 3
+    assert variants[0][0] == "SUBJECT"
+    assert variants[1][0] == "TEXT"
+    assert variants[2][0] == "TEXT"
+    assert variants[0][1] == '"[EDC_SZE_7/SZE]"'
+    assert variants[1][1] == '"[EDC_SZE_7/SZE]"'
+    assert variants[2][1] == '"EDC_SZE_7"'
