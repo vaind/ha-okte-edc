@@ -165,6 +165,25 @@ def _install_ha_stubs() -> None:
     device_registry.DeviceEntryType = _DeviceEntryType
     device_registry.async_get = _async_get
 
+    # homeassistant.helpers.entity_registry
+    entity_registry = types.ModuleType("homeassistant.helpers.entity_registry")
+
+    class _EntityRegistry:
+        def async_get(self, entity_id):
+            return None
+
+        def async_update_entity(self, entity_id, **kwargs):
+            return None
+
+    def _entity_registry_async_get(_hass):
+        return _EntityRegistry()
+
+    def _entries_for_entry(_registry, _entry_id):
+        return []
+
+    entity_registry.async_get = _entity_registry_async_get
+    entity_registry.async_entries_for_config_entry = _entries_for_entry
+
     # homeassistant.helpers.selector
     selector = types.ModuleType("homeassistant.helpers.selector")
 
@@ -251,6 +270,7 @@ def _install_ha_stubs() -> None:
     sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
     sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
     sys.modules["homeassistant.helpers.device_registry"] = device_registry
+    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
     sys.modules["homeassistant.helpers.selector"] = selector
     sys.modules["homeassistant.helpers.storage"] = storage
     sys.modules["homeassistant.components"] = components

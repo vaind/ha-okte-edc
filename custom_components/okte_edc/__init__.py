@@ -9,9 +9,10 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN
+from .const import DOMAIN, statistic_id_for
 from .coordinator import (
     OkteCoordinator,
     _STORE_VERSION,
@@ -44,6 +45,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         **_service_device_info(entry),
     )
 
+    # Migrate any entity_ids registered before the integration started
+    # forcing them explicitly. See `_migrate_entity_ids` for the why.
+    await _migrate_entity_ids(hass, entry)
+
     coordinator = OkteCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
@@ -69,6 +74,69 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up the per-entry persistent state file when the user removes the integration."""
     store = Store(hass, _STORE_VERSION, _state_store_key(entry))
     await store.async_remove()
+
+
+async def _migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Rename auto-derived entity_ids to the integration's canonical form.
+
+    Earlier versions of the integration set ``_attr_has_entity_name = True``
+    and let HA derive the entity_id automatically. HA's derivation
+    slugifies the *translated friendly name* — which is locale-dependent
+    and drifts away from the translation_key when a name contains
+    punctuation that slugify strips ("Shared (imported)" becomes
+    ``shared_imported``, not ``shared_in``). The coordinator's
+    ``statistic_id_for`` always uses the translation_key, so every
+    import landed in an orphan statistic_id that no entity was linked
+    to.
+
+    New entities now have ``self.entity_id`` set explicitly. This
+    migration brings pre-existing registry entries into line so users
+    don't have to remove + re-add the integration to recover.
+    """
+    registry = er.async_get(hass)
+    prefix = f"{entry.entry_id}_"
+    for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if not ent.unique_id.startswith(prefix):
+            continue
+        rest = ent.unique_id[len(prefix):]
+
+        expected: str | None = None
+        if rest == "service_poll_now":
+            expected = f"button.{DOMAIN}_service_poll_now"
+        elif rest.startswith("service_"):
+            suffix = rest[len("service_"):]
+            expected = f"sensor.{DOMAIN}_service_{suffix}"
+        elif rest.startswith("24ZZS") and len(rest) > 17 and rest[16] == "_":
+            eic = rest[:16]
+            suffix = rest[17:]
+            expected = statistic_id_for(eic, suffix)
+
+        if expected is None or ent.entity_id == expected:
+            continue
+        if registry.async_get(expected) is not None:
+            _LOGGER.warning(
+                "Cannot migrate %s -> %s: target entity_id already in use",
+                ent.entity_id,
+                expected,
+            )
+            continue
+        try:
+            registry.async_update_entity(
+                ent.entity_id, new_entity_id=expected
+            )
+        except ValueError as exc:
+            _LOGGER.warning(
+                "Migration failed for %s -> %s: %s",
+                ent.entity_id,
+                expected,
+                exc,
+            )
+        else:
+            _LOGGER.info(
+                "Migrated entity_id %s -> %s",
+                ent.entity_id,
+                expected,
+            )
 
 
 async def _async_update_listener(

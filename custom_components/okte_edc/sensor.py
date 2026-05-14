@@ -31,6 +31,7 @@ from .const import (
     DOMAIN,
     ROLE_OFFTAKE,
     ROLE_PRODUCER,
+    statistic_id_for,
     SUFFIX_FILE_VERSION,
     SUFFIX_GRID_IMPORT,
     SUFFIX_GRID_RETURN,
@@ -226,6 +227,14 @@ class OkteEicSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._eic = eic
+        # Force the entity_id explicitly so it matches `statistic_id_for`
+        # exactly and doesn't depend on the user's HA locale. With
+        # `has_entity_name=True` HA would otherwise derive entity_id by
+        # slugifying the translated friendly name — which differs from
+        # the translation_key when names like "Shared (imported)" round
+        # to "shared_imported", causing imported statistics to land in
+        # an orphan statistic_id no entity is linked to.
+        self.entity_id = statistic_id_for(eic, description.key)
         self._attr_unique_id = f"{entry.entry_id}_{eic}_{description.key}"
         self._attr_device_info = _eic_device_info(eic, role, entry)
 
@@ -278,6 +287,9 @@ class OkteServiceSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
+        # Same rationale as OkteEicSensor — entity_id stays
+        # locale-independent and predictable.
+        self.entity_id = f"sensor.{DOMAIN}_service_{description.key}"
         self._attr_unique_id = f"{entry.entry_id}_service_{description.key}"
         self._attr_device_info = _service_device_info(entry)
 
