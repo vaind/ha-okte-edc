@@ -174,6 +174,20 @@ def statistic_name_for(eic: str, suffix: str) -> str:
     return f"OKTE EDC {short_eic(eic)} {suffix.replace('_', ' ').capitalize()}"
 
 
+def entity_id_for(eic: str, suffix: str) -> str:
+    """Return the per-EIC sensor entity_id.
+
+    Distinct from :func:`statistic_id_for`: HA entity IDs use the form
+    ``<domain>.<object_id>`` with a single dot separator and only
+    ``[a-z0-9_]`` in ``<object_id>``. Statistic IDs for external
+    statistics use ``<source>:<id>`` with a colon — illegal in entity
+    IDs. The two helpers are deliberately different functions to make
+    the contrast explicit and to keep callers from copy-pasting one
+    into the other.
+    """
+    return f"sensor.{DOMAIN}_{short_eic(eic)}_{suffix}"
+
+
 def short_eic(eic: str) -> str:
     """Return the lowercase last 8 alphanumeric characters of an EIC.
 

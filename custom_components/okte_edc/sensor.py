@@ -31,7 +31,7 @@ from .const import (
     DOMAIN,
     ROLE_OFFTAKE,
     ROLE_PRODUCER,
-    statistic_id_for,
+    entity_id_for,
     SUFFIX_FILE_VERSION,
     SUFFIX_GRID_IMPORT,
     SUFFIX_GRID_RETURN,
@@ -249,14 +249,14 @@ class OkteEicSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._eic = eic
-        # Force the entity_id explicitly so it matches `statistic_id_for`
-        # exactly and doesn't depend on the user's HA locale. With
-        # `has_entity_name=True` HA would otherwise derive entity_id by
-        # slugifying the translated friendly name — which differs from
-        # the translation_key when names like "Shared (imported)" round
-        # to "shared_imported", causing imported statistics to land in
-        # an orphan statistic_id no entity is linked to.
-        self.entity_id = statistic_id_for(eic, description.key)
+        # Force the entity_id explicitly. With `has_entity_name=True`
+        # HA would otherwise derive entity_id by slugifying the
+        # translated friendly name — which is locale-dependent and
+        # drifts across HA language changes. The explicit form is
+        # stable. Note: the statistic_id (`okte_edc:<slug>_<key>`)
+        # is a separate identifier — see `entity_id_for` vs
+        # `statistic_id_for` in const.py.
+        self.entity_id = entity_id_for(eic, description.key)
         self._attr_unique_id = f"{entry.entry_id}_{eic}_{description.key}"
         self._attr_device_info = _eic_device_info(eic, role, entry)
 

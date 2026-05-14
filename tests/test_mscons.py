@@ -72,6 +72,29 @@ def test_statistic_id_uses_external_format():
     )
 
 
+def test_entity_id_uses_sensor_dot_form_not_colon_form():
+    """`entity_id_for` and `statistic_id_for` are deliberately different.
+
+    Entity IDs are ``<domain>.<object_id>`` and must use ``[a-z0-9_]``
+    in the object part — colons are illegal and HA logs an
+    `Error adding entity` + a deprecation warning. The statistic_id
+    side uses the ``<source>:<id>`` form HA requires for external
+    statistics. Make sure these two helpers don't drift back into a
+    single function.
+    """
+    from okte_edc.const import entity_id_for, statistic_id_for
+
+    assert (
+        entity_id_for("24ZZS00000000001", "grid_import")
+        == "sensor.okte_edc_00000001_grid_import"
+    )
+    assert ":" not in entity_id_for("24ZZS00000000001", "grid_import")
+    # The two helpers must NEVER be the same string for the same input.
+    assert entity_id_for(
+        "24ZZS00000000001", "grid_import"
+    ) != statistic_id_for("24ZZS00000000001", "grid_import")
+
+
 def test_statistic_name_is_human_readable():
     """The Energy-dashboard source picker shows the metadata `name`.
 
