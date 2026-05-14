@@ -109,6 +109,46 @@ Read in this order if you're new:
 
 Force-pushing, deleting `tests/fixtures/`, `git reset --hard`,
 re-creating the repo on the GitHub side: **don't** without a clear
-reason and an explicit go-ahead from the user. The repo had one
-PII-leak history rewrite already; further history surgery should be a
-rare, reasoned act, not a routine cleanup.
+reason and an explicit go-ahead from the user.
+
+## PII guard — check every commit before you make it
+
+Before every `git commit`, inspect the staged diff for identifiers
+that could tie the repo to a real household. If you find any, stop,
+unstage, fix the source, and surface what you found to the user. **Do
+not commit and clean up afterward** — once it's in history it's
+expensive to remove.
+
+What "real" looks like (these are illustrative *shapes*; do not paste
+real values into this file):
+
+- Real EICs — `24ZZS` followed by 11 alphanumeric characters that
+  are not the documented synthetic placeholders (`24ZZS00000000001`,
+  `24ZZS00000000002`, `24ZZSVYR00000099`).
+- Real partner codes — `24X-…` / `24Y-…` 16-char identifiers that
+  aren't `24X-EXAMPLE-0001` / `24Y-EXAMPLE-0001` (and the
+  sequentially numbered siblings).
+- Real per-message reference numbers — 13-character base-36 tokens
+  starting with a digit, anything other than `FIXTUREnnnnnnnnA`.
+- IMAP hostnames, usernames, or passwords (the `.env` is
+  gitignored — confirm it stays that way).
+- Personal email addresses, names, phone numbers, addresses in any
+  comment, fixture, commit message, or commit body.
+- Diagnostic dumps copied verbatim from a real HA install (they
+  contain partly redacted but still-real identifiers).
+
+Minimum pre-commit check, run from the repo root:
+
+```bash
+git diff --cached | grep -E '24ZZS[A-Z0-9]{11}|24[XY]-[A-Z0-9-]{12}|\b[0-9][0-9A-Z]{12}\b' \
+  | grep -vE '24ZZS0{10}[12]|24ZZSVYR0{6}99|24[XY]-EXAMPLE-[0-9]{4}|FIXTURE[0-9]{8}A'
+```
+
+Empty output = clean. Any match = a real identifier slipped through;
+investigate before committing.
+
+If a real value has already landed in the working tree (a downloaded
+fixture, a screenshot path with PII, an email address pasted into a
+comment), use `tests/_anonymize.py` (for MSCONS files) or hand-replace
+with one of the synthetic shapes above. Real fixtures themselves
+belong under `tests/fixtures/real/`, which is `.gitignore`-d.
