@@ -159,11 +159,20 @@ def _install_ha_stubs() -> None:
         def async_get_or_create(self, **kwargs):
             return None
 
+        def async_update_device(self, device_id, **kwargs):
+            return None
+
     def _async_get(_hass):
         return _DeviceRegistry()
 
+    def _async_entries_for_config_entry(_registry, _entry_id):
+        return []
+
     device_registry.DeviceEntryType = _DeviceEntryType
     device_registry.async_get = _async_get
+    device_registry.async_entries_for_config_entry = (
+        _async_entries_for_config_entry
+    )
 
     # homeassistant.helpers.selector
     selector = types.ModuleType("homeassistant.helpers.selector")

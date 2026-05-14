@@ -37,10 +37,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # per-EIC devices the sensor platform registers (with
     # `via_device=(DOMAIN, entry.entry_id)`) don't reference a
     # non-existent parent.
-    dr.async_get(hass).async_get_or_create(
+    device_reg = dr.async_get(hass)
+    device_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
         **_service_device_info(entry),
     )
+
+    # Earlier releases set `manufacturer="OKTE, a.s."` on every device
+    # via DeviceInfo, which the device registry then cached. Removing
+    # the field from new DeviceInfo doesn't clear the existing value;
+    # explicitly clear it here so the device card stops rendering
+    # "by OKTE, a.s." next to the model line.
+    for device in dr.async_entries_for_config_entry(
+        device_reg, entry.entry_id
+    ):
+        if device.manufacturer:
+            device_reg.async_update_device(device.id, manufacturer=None)
 
     coordinator = OkteCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
