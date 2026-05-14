@@ -116,7 +116,8 @@
       "parse_warnings": { "name": "Parse warnings" },
       "next_poll_at": { "name": "Next mailbox check" },
       "last_poll_at": { "name": "Last mailbox check" },
-      "last_successful_poll_at": { "name": "Last successful check" }
+      "last_successful_poll_at": { "name": "Last successful check" },
+      "last_poll_issues": { "name": "Last poll issues" }
     },
     "button": {
       "poll_now": { "name": "Check mailbox now" },

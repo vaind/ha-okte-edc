@@ -93,6 +93,7 @@ SUFFIX_PARSE_WARNINGS: Final = "parse_warnings"
 SUFFIX_NEXT_POLL: Final = "next_poll_at"
 SUFFIX_LAST_POLL: Final = "last_poll_at"
 SUFFIX_LAST_SUCCESSFUL_POLL: Final = "last_successful_poll_at"
+SUFFIX_LAST_POLL_ISSUES: Final = "last_poll_issues"
 
 # Mapping: (role, sensor suffix) -> LIN code that feeds the sensor.
 SENSOR_TO_LIN: Final[dict[tuple[str, str], str]] = {

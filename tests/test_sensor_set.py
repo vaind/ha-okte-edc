@@ -29,16 +29,17 @@ class _FakeCoordinator:
 
 def test_sensor_count_per_eic_and_service():
     """Each offtake EIC: 3 energy + 5 diagnostic = 8. Producer same shape = 8.
-    Service: 3 timestamps. Total 8 + 8 + 3 = 19 sensors."""
+    Service: 3 timestamps + 1 issue count = 4. Total 8 + 8 + 4 = 20."""
     from okte_edc.sensor import _iter_entities
 
     entities = list(_iter_entities(_FakeEntry(), _FakeCoordinator()))
-    assert len(entities) == 19
+    assert len(entities) == 20
 
 
 def test_service_sensors_present():
     from okte_edc.const import (
         SUFFIX_LAST_POLL,
+        SUFFIX_LAST_POLL_ISSUES,
         SUFFIX_LAST_SUCCESSFUL_POLL,
         SUFFIX_NEXT_POLL,
     )
@@ -54,6 +55,7 @@ def test_service_sensors_present():
         SUFFIX_NEXT_POLL,
         SUFFIX_LAST_POLL,
         SUFFIX_LAST_SUCCESSFUL_POLL,
+        SUFFIX_LAST_POLL_ISSUES,
     }
 
 

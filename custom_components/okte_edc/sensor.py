@@ -37,6 +37,7 @@ from .const import (
     SUFFIX_GRID_RETURN,
     SUFFIX_LAST_IMPORT,
     SUFFIX_LAST_POLL,
+    SUFFIX_LAST_POLL_ISSUES,
     SUFFIX_LAST_SUCCESSFUL_POLL,
     SUFFIX_MEASUREMENT_DATE,
     SUFFIX_NEXT_POLL,
@@ -159,6 +160,13 @@ SVC_LAST_SUCCESSFUL_POLL = SensorEntityDescription(
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
+SVC_LAST_POLL_ISSUES = SensorEntityDescription(
+    key=SUFFIX_LAST_POLL_ISSUES,
+    translation_key=SUFFIX_LAST_POLL_ISSUES,
+    state_class=SensorStateClass.MEASUREMENT,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -209,6 +217,7 @@ def _iter_entities(
     yield OkteServiceSensor(coordinator, entry, SVC_NEXT_POLL)
     yield OkteServiceSensor(coordinator, entry, SVC_LAST_POLL)
     yield OkteServiceSensor(coordinator, entry, SVC_LAST_SUCCESSFUL_POLL)
+    yield OkteServiceSensor(coordinator, entry, SVC_LAST_POLL_ISSUES)
 
 
 class OkteEicSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
@@ -302,18 +311,26 @@ class OkteServiceSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
             return self.coordinator.last_poll_at
         if key == SUFFIX_LAST_SUCCESSFUL_POLL:
             return self.coordinator.last_successful_poll_at
+        if key == SUFFIX_LAST_POLL_ISSUES:
+            return len(self.coordinator.last_poll_issues or [])
         return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.key != SUFFIX_LAST_POLL:
-            return None
-        attrs: dict[str, Any] = {
-            "poll_interval_minutes": (
-                self.coordinator.update_interval.total_seconds() / 60
-                if self.coordinator.update_interval
-                else None
-            ),
-        }
-        attrs.update(self.coordinator.last_poll_stats or {})
-        return {k: v for k, v in attrs.items() if v is not None}
+        key = self.entity_description.key
+        if key == SUFFIX_LAST_POLL:
+            attrs: dict[str, Any] = {
+                "poll_interval_minutes": (
+                    self.coordinator.update_interval.total_seconds() / 60
+                    if self.coordinator.update_interval
+                    else None
+                ),
+            }
+            attrs.update(self.coordinator.last_poll_stats or {})
+            return {k: v for k, v in attrs.items() if v is not None}
+        if key == SUFFIX_LAST_POLL_ISSUES:
+            issues = list(self.coordinator.last_poll_issues or [])
+            if not issues:
+                return None
+            return {"issues": issues}
+        return None

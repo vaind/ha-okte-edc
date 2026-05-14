@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <marker id="arr" viewBox="0 0 12 12" refX="6" refY="6"
+            markerUnits="userSpaceOnUse" markerWidth="56" markerHeight="56"
+            orient="auto">
+      <path d="M 1 1 L 11 6 L 1 11 L 4 6 Z" fill="#06B6D4"/>
+    </marker>
+  </defs>
+
+  <!-- Top circulation arc: motion right -> left, bulging over the top.
+       Arrowhead lands at the left end, pointing down-left. -->
+  <path d="M 218 96 A 96 96 0 0 0 38 96"
+        fill="none" stroke="#06B6D4" stroke-width="14"
+        stroke-linecap="round"
+        marker-end="url(#arr)"/>
+
+  <!-- Bottom circulation arc: motion left -> right, bulging under.
+       Arrowhead lands at the right end, pointing up-right. -->
+  <path d="M 38 160 A 96 96 0 0 0 218 160"
+        fill="none" stroke="#06B6D4" stroke-width="14"
+        stroke-linecap="round"
+        marker-end="url(#arr)"/>
+
+  <!-- Lightning bolt -->
+  <path d="M 152 38 L 90 138 L 128 138 L 108 218 L 170 110 L 132 110 Z"
+        fill="#1E3A8A"/>
+</svg>

@@ -130,6 +130,14 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.last_poll_at: datetime | None = None
         self.last_successful_poll_at: datetime | None = None
         self.last_poll_stats: dict[str, Any] = {}
+        # Per-poll list of human-readable issue descriptions for messages
+        # that were rejected mid-flow (sender allowlist mismatch, parse
+        # error, EIC/date cross-check failure). The service-level
+        # `last_poll_issues` sensor surfaces ``len(self.last_poll_issues)``
+        # as its state and the full list in its attributes, so users can
+        # see at a glance that the last poll wasn't fully clean without
+        # having to open the HA log.
+        self.last_poll_issues: list[str] = []
         # One-shot override: the next poll bypasses the dynamic SINCE
         # cutoff and asks the IMAP server for everything matching the
         # subject filter. Set by the "Full mailbox scan" diagnostic
@@ -522,6 +530,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         force_full_scan = self._force_full_scan
         self._force_full_scan = False
 
+        # Reset the per-poll issue list. Anything we append below shows
+        # up on the service device's `Last poll issues` sensor at the
+        # end of the cycle.
+        issues: list[str] = []
+
         session = self._client.open_session()
         matched_count = 0
         processed_count = 0
@@ -588,14 +601,18 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     skipped_count += 1
                     continue
                 if sender_allowlist and msg.sender not in sender_allowlist:
+                    sender = msg.sender or "<unknown>"
                     _LOGGER.warning(
                         "Rejecting UID %s: sender %r not in allowlist %r — "
                         "the message will not be processed. Adjust the "
                         "sender allowlist in the integration options if "
                         "this is a legitimate forwarder.",
                         uid,
-                        msg.sender or "<unknown>",
+                        sender,
                         sender_allowlist,
+                    )
+                    issues.append(
+                        f"Rejected message from {sender}: not in sender allowlist"
                     )
                     skipped_count += 1
                     continue
@@ -614,6 +631,10 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                         _LOGGER.warning(
                             "Skipping attachment with bad date %s",
                             att.filename,
+                        )
+                        issues.append(
+                            f"Skipped attachment {att.filename}: "
+                            f"unparseable date in filename"
                         )
                         continue
                     if (
@@ -639,6 +660,9 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                             att.filename,
                             exc,
                         )
+                        issues.append(
+                            f"Failed to parse {att.filename}: {exc}"
+                        )
                         continue
                     if att.eic.upper() != data.eic.upper():
                         _LOGGER.warning(
@@ -648,6 +672,10 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                             att.eic,
                             data.eic,
                         )
+                        issues.append(
+                            f"Rejected {att.filename}: filename EIC {att.eic} "
+                            f"!= XML PLACE_ID {data.eic}"
+                        )
                         continue
                     if file_date != data.measurement_date:
                         _LOGGER.warning(
@@ -656,6 +684,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                             att.filename,
                             file_date.isoformat(),
                             data.measurement_date.isoformat(),
+                        )
+                        issues.append(
+                            f"Rejected {att.filename}: filename date "
+                            f"{file_date.isoformat()} != XML date "
+                            f"{data.measurement_date.isoformat()}"
                         )
                         continue
                     candidates.append((uid, att, data))
@@ -709,6 +742,7 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             "processed": processed_count,
             "skipped": skipped_count,
         }
+        self.last_poll_issues = issues
         return updates, pending_by_stat
 
     def _collect_pending(
