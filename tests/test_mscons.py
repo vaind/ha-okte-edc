@@ -133,6 +133,22 @@ def test_parse_extended_iso_dates():
     assert len(data.series[LIN_PS15]) == 96
 
 
+def test_measurement_date_is_inferred_from_quarter_timestamps():
+    """measurement_date comes from the XML's quarter timestamps in local time.
+
+    The coordinator cross-checks this against the date encoded in the
+    filename. Drifting the XML date relative to the filename's date
+    must surface here, not silently flow through.
+    """
+    spec = FileSpec(
+        eic="24ZZS00000000001",
+        measurement_date=date(2026, 5, 3),
+        series=offtake_series(96),
+    )
+    data = parse_mscons(build_mscons_xml(spec))
+    assert data.measurement_date == date(2026, 5, 3)
+
+
 def test_parse_version_number_from_bgm():
     spec = FileSpec(
         eic="24ZZS00000000001",

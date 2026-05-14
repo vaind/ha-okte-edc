@@ -439,6 +439,21 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 )
                 continue
 
+            # Same defense for the measurement date: the filename's
+            # YYYYMMDD is what we use to key the dedup map, but the XML's
+            # quarter timestamps determine which hour bucket statistics
+            # land in. If the two disagree the file is either misnamed
+            # by OKTE (very rare) or tampered with — reject either way.
+            if file_date != data.measurement_date:
+                _LOGGER.warning(
+                    "Attachment %s declares date %s in filename but XML "
+                    "measurements cover %s; rejecting due to date mismatch",
+                    att.filename,
+                    file_date.isoformat(),
+                    data.measurement_date.isoformat(),
+                )
+                continue
+
             try:
                 self._import_data(att, data, updates)
             except Exception as exc:  # noqa: BLE001
