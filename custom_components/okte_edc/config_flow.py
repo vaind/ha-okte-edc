@@ -331,7 +331,7 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
-        return OkteOptionsFlow(config_entry)
+        return OkteOptionsFlow()
 
 
 class OkteOptionsFlow(config_entries.OptionsFlow):
@@ -343,8 +343,7 @@ class OkteOptionsFlow(config_entries.OptionsFlow):
     - "rescan": re-run mailbox discovery to pick up newly added EICs.
     """
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+    def __init__(self) -> None:
         self._discovered: list[tuple[str, str]] = []
 
     async def async_step_init(
