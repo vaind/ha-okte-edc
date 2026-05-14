@@ -21,10 +21,14 @@
       },
       "discover_eics": {
         "title": "Výber odberných miest",
-        "description": "V nedávnych e-mailoch OKTE boli nájdené tieto EIC kódy. Vyberte, ktoré chcete importovať.",
+        "description": "Každý EIC je jedno odberné miesto — jeden elektromer na konkrétnej adrese. Vyberte EIC kódy, ktoré patria k miestu, ktoré táto inštalácia Home Assistanta zastupuje:\n\n- **Výrobca + jeho odberateľ na rovnakej adrese** (typické nastavenie pri zdieľaní z PV): importujte obidva. Spolu poskytujú kompletný obraz o sieti / FV / zdieľaní pre jednu domácnosť.\n- **EIC na inej adrese** (napríklad ak do tejto schránky preposielate aj poštu rodiča): nechajte ich neoznačené. Pre druhé miesto môžete neskôr nainštalovať ďalšiu inštanciu integrácie.\n\nUpozornenie: po importe EIC a začatí zapisovania štatistík ho síce môžete neskôr zakázať, no historické dáta zostanú v databáze HA recorder. Je jednoduchšie EIC teraz preskočiť, než ho neskôr čistiť.",
         "data": {
           "eics": "Odberné miesta"
         }
+      },
+      "post_setup": {
+        "title": "Ešte posledný krok",
+        "description": "Nastavenie je pripravené. Vybrané EIC sa naimportujú v ďalšom cykle kontroly.\n\n**Pridajte senzory do Energetického prehľadu** (Nastavenia → Prehľady → Energia — pozri [oficiálnu dokumentáciu Home Assistant Energy](https://www.home-assistant.io/docs/energy/)):\n\n- Odberateľský `grid_import` → **Spotreba zo siete**\n- Odberateľský `shared_in` → **Výroba solárnej energie** (zdieľanie pôsobí z pohľadu odberateľa ako bezplatný zdroj energie)\n- Výrobcovský `grid_return` → **Návrat do siete**\n\nAk máte viac EIC na rovnakej fyzickej adrese, pridajte každý senzor do toho istého slotu — Home Assistant ich sčíta. EIC na rôznych adresách by sa všeobecne nemali kombinovať; buď ich preskočte, alebo nainštalujte samostatnú inštanciu integrácie pre druhé miesto.\n\nSenzory `total_*` slúžia len ako informácie a do žiadneho slotu prehľadu sa nemapujú."
       },
       "reauth_confirm": {
         "title": "Opätovné prihlásenie OKTE EDC",
@@ -75,7 +79,7 @@
       },
       "rescan": {
         "title": "Opätovné prehľadanie odberných miest",
-        "description": "Vyberte, ktoré odberné miesta sa majú importovať.",
+        "description": "Každý EIC je jedno odberné miesto — jeden elektromer na konkrétnej adrese. Vyberte EIC kódy, ktoré patria k miestu, ktoré táto inštalácia Home Assistanta zastupuje:\n\n- **Výrobca + jeho odberateľ na rovnakej adrese** (typické nastavenie pri zdieľaní z PV): importujte obidva. Spolu poskytujú kompletný obraz o sieti / FV / zdieľaní pre jednu domácnosť.\n- **EIC na inej adrese** (napríklad ak do tejto schránky preposielate aj poštu rodiča): nechajte ich neoznačené. Pre druhé miesto môžete neskôr nainštalovať ďalšiu inštanciu integrácie.\n\nUpozornenie: po importe EIC a začatí zapisovania štatistík ho síce môžete neskôr zakázať, no historické dáta zostanú v databáze HA recorder. Je jednoduchšie EIC teraz preskočiť, než ho neskôr čistiť.",
         "data": {
           "eics": "Odberné miesta"
         }

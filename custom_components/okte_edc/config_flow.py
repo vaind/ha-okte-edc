@@ -84,6 +84,7 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._folders: list[str] = []
         self._discovered: list[tuple[str, str]] = []
         self._discovered_senders: list[str] = []
+        self._selected_eics: list[str] = []
         self._reauth_entry: config_entries.ConfigEntry | None = None
 
     # ----- user step ---------------------------------------------------
@@ -226,32 +227,49 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="discover_eics", data_schema=schema
             )
 
-        selected = set(user_input[CONF_EICS])
-        eic_records = [
-            {"eic": eic, "role": role, "enabled": eic in selected}
-            for eic, role in self._discovered
-        ]
-        entry_data = {**self._user_data, CONF_EICS: eic_records}
-        # Seed the sender allowlist with the From addresses we actually
-        # saw during discovery — this auto-handles users who forward
-        # OKTE mail from another mailbox (their forwarder address ends
-        # up here). Falls back to the documented OKTE address only if
-        # we didn't observe any sender at all.
-        initial_options = {
-            OPT_SENDER_ALLOWLIST: (
-                ", ".join(self._discovered_senders)
-                if self._discovered_senders
-                else DEFAULT_SENDER_ALLOWLIST
-            ),
-        }
-        # Title intentionally omits the username (a likely email address).
-        # Users with multiple OKTE mailboxes can rename in the HA UI;
-        # the unique_id (username@host:port) still disambiguates entries
-        # internally.
-        return self.async_create_entry(
-            title=f"OKTE EDC ({self._user_data[CONF_HOST]})",
-            data=entry_data,
-            options=initial_options,
+        # Persist the selection and route to the post-setup info screen
+        # before creating the entry — gives the user a chance to read
+        # the Energy-dashboard wiring instructions while the choice is
+        # still fresh.
+        self._selected_eics = list(user_input[CONF_EICS])
+        return await self.async_step_post_setup()
+
+    async def async_step_post_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Show Energy-dashboard wiring guidance, then create the entry."""
+        if user_input is not None:
+            selected = set(self._selected_eics)
+            eic_records = [
+                {"eic": eic, "role": role, "enabled": eic in selected}
+                for eic, role in self._discovered
+            ]
+            entry_data = {**self._user_data, CONF_EICS: eic_records}
+            # Seed the sender allowlist with the From addresses we
+            # actually saw during discovery — this auto-handles users
+            # who forward OKTE mail from another mailbox (their
+            # forwarder address ends up here). Falls back to the
+            # documented OKTE address only if we didn't observe any
+            # sender at all.
+            initial_options = {
+                OPT_SENDER_ALLOWLIST: (
+                    ", ".join(self._discovered_senders)
+                    if self._discovered_senders
+                    else DEFAULT_SENDER_ALLOWLIST
+                ),
+            }
+            # Title intentionally omits the username (a likely email
+            # address). Users with multiple OKTE mailboxes can rename
+            # in the HA UI; the unique_id (username@host:port) still
+            # disambiguates entries internally.
+            return self.async_create_entry(
+                title=f"OKTE EDC ({self._user_data[CONF_HOST]})",
+                data=entry_data,
+                options=initial_options,
+            )
+        return self.async_show_form(
+            step_id="post_setup",
+            data_schema=vol.Schema({}),
         )
 
     # ----- reauth ------------------------------------------------------

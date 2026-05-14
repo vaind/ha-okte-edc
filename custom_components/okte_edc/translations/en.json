@@ -21,10 +21,14 @@
       },
       "discover_eics": {
         "title": "Choose metering points",
-        "description": "Found these EICs in recent OKTE emails. Select which to import.",
+        "description": "Each EIC is a single metering point — one electricity meter at a specific address. Pick the EICs that belong to the location this Home Assistant install represents:\n\n- **Producer + its off-take at the same address** (typical PV-sharing setup): import both. Together they paint the complete grid / PV / sharing picture for one home.\n- **EICs at a different address** (for example you also forward a relative's mailbox into this account): leave them unchecked. You can install a second integration instance later for that location.\n\nHeads up: once an EIC is imported and statistics start being written, disabling it later stops new imports but leaves the historical data in the HA recorder. It's easier to skip an EIC now than to clean it up later.",
         "data": {
           "eics": "Metering points"
         }
+      },
+      "post_setup": {
+        "title": "Almost done",
+        "description": "Setup is ready to go. The EICs you selected will be imported on the next polling cycle.\n\n**Wire the sensors into the Energy dashboard** (Settings → Dashboards → Energy — see the [official Home Assistant Energy docs](https://www.home-assistant.io/docs/energy/)):\n\n- Off-take `grid_import` → **Grid consumption**\n- Off-take `shared_in` → **Solar production** (the sharing scheme acts as a free-energy source from the off-taker's side)\n- Producer `grid_return` → **Return to grid**\n\nIf you have multiple EICs at the same physical address, add each one's sensor to the same slot — Home Assistant sums them. EICs at different addresses should generally not be combined; either skip them or install a separate integration instance for the other location.\n\nThe `total_*` sensors are informational reference only and don't map to a dashboard slot."
       },
       "reauth_confirm": {
         "title": "Re-authenticate OKTE EDC",
@@ -75,7 +79,7 @@
       },
       "rescan": {
         "title": "Rescan metering points",
-        "description": "Re-select which metering points to import.",
+        "description": "Each EIC is a single metering point — one electricity meter at a specific address. Pick the EICs that belong to the location this Home Assistant install represents:\n\n- **Producer + its off-take at the same address** (typical PV-sharing setup): import both. Together they paint the complete grid / PV / sharing picture for one home.\n- **EICs at a different address** (for example you also forward a relative's mailbox into this account): leave them unchecked. You can install a second integration instance later for that location.\n\nHeads up: once an EIC is imported and statistics start being written, disabling it later stops new imports but leaves the historical data in the HA recorder. It's easier to skip an EIC now than to clean it up later.",
         "data": {
           "eics": "Metering points"
         }
