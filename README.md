@@ -286,32 +286,11 @@ All settings live in the integration's **Configure** screen:
   class are correctly recognised; the **Developer Tools → Statistics**
   page will say whether a sensor is being picked up.
 
-## Development
+## Contributing
 
-```bash
-python3 -m pip install --user defusedxml pytest
-python3 -m pytest tests/
-```
-
-Tests cover the MSCONS parser, hourly aggregation (including
-spring-forward 23-hour and fall-back 25-hour days), reconciliation, the
-V1→V2 correction flow, filename regex, and attachment extraction. The
-test suite uses minimal stubs of `homeassistant.*` so it runs without a
-full HA install.
-
-The anonymized OKTE files under `tests/fixtures/` were produced from
-real production files via `tests/_anonymize.py`. To regenerate or extend
-them with your own samples:
-
-```bash
-python3 tests/_anonymize.py path/to/your_real_file.xml
-```
-
-The anonymizer replaces EICs, partner codes, and per-message reference
-numbers with deterministic synthetic values; the per-quarter quantities
-are kept so reconciliation invariants remain testable. Anything under
-`tests/fixtures/real/` is `.gitignore`-d so unprocessed real files are
-never committed by accident.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, tests, fixtures,
+and code-style notes. AI agents working on this codebase should also
+read [AGENTS.md](./AGENTS.md) before proposing changes.
 
 ## License
 
