@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Schránka OKTE EDC",
-        "description": "Zadajte IMAP prihlasovacie údaje pre schránku, do ktorej prichádzajú zúčtovacie e-maily OKTE.",
+        "description": "Zadajte IMAP prihlasovacie údaje pre schránku, do ktorej prichádzajú zúčtovacie e-maily OKTE.\n\n⚠️ **Skorá verzia neoficiálnej integrácie — používate na vlastné riziko.** Prihlasuje sa s právom zápisu (môže označovať, presúvať alebo mazať správy podľa zvoleného režimu čistenia), ukladá IMAP prihlasovacie údaje v Home Assistante a zapisuje dlhodobé štatistiky do databázy recorder. Hodnoty, ktoré produkuje, nie sú vhodné na účely fakturácie alebo regulačné účely bez nezávislej kontroly. Odporúčania pred pokračovaním: použite vyhradenú schránku, o stratu ktorej môžete prísť, zálohujte si konfiguráciu HA a databázu recorder a prečítajte si [README a zdrojový kód](https://github.com/vaind/ha-okte-edc).",
         "data": {
           "host": "IMAP server",
           "port": "Port",

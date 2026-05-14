@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "OKTE EDC mailbox",
-        "description": "Enter the IMAP credentials for the mailbox receiving OKTE settlement emails.",
+        "description": "Enter the IMAP credentials for the mailbox receiving OKTE settlement emails.\n\n⚠️ **Early-version, unofficial integration — use at your own risk.** It logs in with write access (it can flag, move, or delete messages depending on the cleanup mode you choose), stores your IMAP credentials in Home Assistant, and writes long-term statistics into the HA recorder. The values it produces are not suitable for billing or regulatory purposes without independent reconciliation. Recommended before continuing: use a dedicated mailbox you can afford to lose, back up your HA configuration and recorder database, and review the [README and source code](https://github.com/vaind/ha-okte-edc).",
         "data": {
           "host": "IMAP server",
           "port": "Port",
