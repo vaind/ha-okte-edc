@@ -229,8 +229,13 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     session.mark_for_delete(old_uids)
                     session.expunge()
 
-            # 2. Find new messages to process.
-            uids = session.search_unprocessed_uids()
+            # 2. Find new messages to process. The SINCE bound prevents
+            # the search from re-scanning ancient mail on keyword-fallback
+            # servers where we don't filter by `\Seen` anymore.
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(
+                days=scan_window_days
+            )
+            uids = session.search_unprocessed_uids(since=cutoff)
             if max_backfill and len(uids) > max_backfill:
                 _LOGGER.warning(
                     "Found %d unprocessed messages; truncating to "

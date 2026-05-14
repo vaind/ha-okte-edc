@@ -84,11 +84,21 @@ class ImapSession:
 
     # ----- search / fetch ------------------------------------------------
 
-    def search_unprocessed_uids(self) -> list[bytes]:
-        """Return UIDs of messages matching the OKTE subject that are not yet processed."""
-        state_filter = self._unprocessed_state_criteria()
-        uids = self._search_with_subject_filter(*state_filter)
-        return uids
+    def search_unprocessed_uids(
+        self, since: datetime | None = None
+    ) -> list[bytes]:
+        """Return UIDs of messages matching the OKTE subject that are not yet processed.
+
+        ``since`` bounds the search to recent messages — important for
+        keyword-fallback servers where there's no IMAP-side processed
+        filter and we re-fetch every matching message in the window
+        each cycle (the coordinator's in-memory state dedups, but the
+        bandwidth is bounded by the time window).
+        """
+        criteria: list[str] = list(self._unprocessed_state_criteria())
+        if since is not None:
+            criteria += ["SINCE", since.strftime("%d-%b-%Y")]
+        return self._search_with_subject_filter(*criteria)
 
     def search_recent_subject(self, since: datetime) -> list[bytes]:
         """Return UIDs of messages matching the OKTE subject delivered on/after ``since``.
@@ -169,8 +179,16 @@ class ImapSession:
         return data[0].split()
 
     def fetch_message(self, uid: bytes) -> FetchedMessage | None:
-        """Fetch a full message by UID and extract OKTE attachments."""
-        typ, data = self._conn.uid("FETCH", uid, "(RFC822)")
+        """Fetch a full message by UID and extract OKTE attachments.
+
+        Uses ``BODY.PEEK[]`` instead of the legacy ``RFC822`` form.
+        Per RFC 3501 §6.4.5, ``RFC822`` sets the ``\\Seen`` flag as a
+        side effect of fetching — which silently turns into a bug on
+        servers where we use ``\\Seen`` as the processed marker (every
+        first-time fetch would mark the message as already processed
+        before we'd actually done anything with it).
+        """
+        typ, data = self._conn.uid("FETCH", uid, "(BODY.PEEK[])")
         if typ != "OK":
             raise ImapConnectionError(f"UID FETCH {uid!r} failed: {typ}")
         if not data or not data[0]:
@@ -238,10 +256,21 @@ class ImapSession:
 
         Combined with the (potentially multi-variant) subject filter by
         :meth:`_search_with_subject_filter`.
+
+        For keyword-supported servers we rely on the ``$OkteProcessed``
+        keyword we set ourselves, which is reliable.
+
+        For keyword-fallback servers we deliberately do **not** filter
+        on ``\\Seen`` here. Earlier versions did, but ``\\Seen`` can be
+        toggled by the user's mail client (or any other process that
+        opens the message), and we now rely on the coordinator's
+        in-memory ``_last_processed_versions`` mapping to skip already
+        imported (eic, date) pairs before doing real work — so an
+        accidentally re-fetched message is cheap, not duplicated.
         """
         if self.keyword_supported:
             return ["NOT", "KEYWORD", PROCESSED_KEYWORD]
-        return ["UNSEEN"]
+        return []
 
 
 class ImapClient:

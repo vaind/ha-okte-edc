@@ -142,6 +142,28 @@ def test_imap_quote_folder_with_slash():
     assert _imap_quote("Archive/OKTE") == '"Archive/OKTE"'
 
 
+def test_unprocessed_state_criteria_keyword_fallback_does_not_filter_seen():
+    """Keyword-fallback servers must not depend on `\\Seen` for processed tracking.
+
+    The user's mail client (or another connection) can toggle `\\Seen`
+    independently; we treat it as a courtesy marker only. Dedup is the
+    coordinator's in-memory job in that case.
+    """
+    from okte_edc.imap_client import ImapSession
+
+    # We can't easily instantiate an ImapSession without a connection,
+    # so call the unbound method on a fake holder.
+    class _Fake:
+        keyword_supported = False
+
+    criteria = ImapSession._unprocessed_state_criteria(_Fake())
+    assert criteria == []
+
+    _Fake.keyword_supported = True
+    criteria = ImapSession._unprocessed_state_criteria(_Fake())
+    assert criteria == ["NOT", "KEYWORD", "$OkteProcessed"]
+
+
 def test_subject_filter_variants_are_progressively_broader():
     """Three variants, narrow → broad: SUBJECT-full, TEXT-full, TEXT-token.
 
