@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
@@ -16,6 +17,7 @@ from .coordinator import (
     _STORE_VERSION,
     _state_store_key,
 )
+from .sensor import _service_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +33,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "with SSL enabled unless you specifically need plaintext IMAP.",
             entry.title,
         )
+
+    # Pre-register the per-entry "mailbox" service device so that the
+    # per-EIC devices the sensor platform registers (with
+    # `via_device=(DOMAIN, entry.entry_id)`) don't reference a
+    # non-existent parent. HA logs a deprecation warning otherwise; the
+    # behaviour is slated to become an error in 2025.12.
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        **_service_device_info(entry),
+    )
+
     coordinator = OkteCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 

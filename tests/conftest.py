@@ -152,6 +152,19 @@ def _install_ha_stubs() -> None:
     device_registry = types.ModuleType("homeassistant.helpers.device_registry")
     device_registry.DeviceInfo = dict
 
+    class _DeviceEntryType:
+        SERVICE = "service"
+
+    class _DeviceRegistry:
+        def async_get_or_create(self, **kwargs):
+            return None
+
+    def _async_get(_hass):
+        return _DeviceRegistry()
+
+    device_registry.DeviceEntryType = _DeviceEntryType
+    device_registry.async_get = _async_get
+
     # homeassistant.helpers.selector
     selector = types.ModuleType("homeassistant.helpers.selector")
 

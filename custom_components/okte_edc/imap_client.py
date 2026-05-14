@@ -4,9 +4,17 @@ The integration polls a mailbox on a configurable cadence and never holds a
 long-lived connection, so a tiny sync wrapper around ``imaplib`` is plenty.
 The coordinator runs all client methods through the HA executor.
 
-Tracking of processed messages uses the ``$OkteProcessed`` custom IMAP
-keyword, falling back to ``\\Seen`` if the server doesn't advertise
-``\\*`` in PERMANENTFLAGS. See spec §10.3.
+Processed-state for messages is tracked in two places:
+
+- On servers that advertise ``\\*`` in PERMANENTFLAGS (i.e. accept custom
+  user keywords), the integration sets ``$OkteProcessed`` on each
+  successfully processed message and uses ``NOT KEYWORD $OkteProcessed``
+  as a server-side fetch filter to keep poll bandwidth bounded.
+- On servers without that capability, processed-state lives entirely
+  in HA Store (per-entry JSON keyed by ``(eic, measurement_date)``)
+  and the IMAP server is not asked to remember anything. The
+  integration deliberately does not modify the user's ``\\Seen``
+  state — that flag belongs to the user's mail client.
 """
 
 from __future__ import annotations
@@ -181,12 +189,9 @@ class ImapSession:
     def fetch_message(self, uid: bytes) -> FetchedMessage | None:
         """Fetch a full message by UID and extract OKTE attachments.
 
-        Uses ``BODY.PEEK[]`` instead of the legacy ``RFC822`` form.
-        Per RFC 3501 §6.4.5, ``RFC822`` sets the ``\\Seen`` flag as a
-        side effect of fetching — which silently turns into a bug on
-        servers where we use ``\\Seen`` as the processed marker (every
-        first-time fetch would mark the message as already processed
-        before we'd actually done anything with it).
+        Uses ``BODY.PEEK[]`` instead of the legacy ``RFC822`` form so
+        the fetch has no side effect on ``\\Seen`` — we treat the
+        user's mail state as read-only.
         """
         typ, data = self._conn.uid("FETCH", uid, "(BODY.PEEK[])")
         if typ != "OK":
@@ -210,10 +215,23 @@ class ImapSession:
     # ----- state mutations ---------------------------------------------
 
     def mark_processed(self, uid: bytes) -> None:
-        flag = PROCESSED_KEYWORD if self.keyword_supported else "\\Seen"
-        typ, _ = self._conn.uid("STORE", uid, "+FLAGS", flag)
+        """Tag a successfully processed message with the OKTE keyword.
+
+        On servers that don't support custom keywords this is a no-op:
+        processed-state is tracked in HA Store and we deliberately don't
+        touch ``\\Seen`` (or any other built-in flag) because doing so
+        would mutate mail state that belongs to the user's mail client,
+        not us.
+        """
+        if not self.keyword_supported:
+            return
+        typ, _ = self._conn.uid(
+            "STORE", uid, "+FLAGS", PROCESSED_KEYWORD
+        )
         if typ != "OK":
-            _LOGGER.warning("Failed to set %s on UID %s", flag, uid)
+            _LOGGER.warning(
+                "Failed to set %s on UID %s", PROCESSED_KEYWORD, uid
+            )
 
     def archive(self, uid: bytes, archive_folder: str) -> bool:
         """Copy a UID to ``archive_folder`` then mark for deletion.
@@ -254,19 +272,13 @@ class ImapSession:
     def _unprocessed_state_criteria(self) -> list[str]:
         """Return just the processed-state half of the search criteria.
 
-        Combined with the (potentially multi-variant) subject filter by
-        :meth:`_search_with_subject_filter`.
-
-        For keyword-supported servers we rely on the ``$OkteProcessed``
-        keyword we set ourselves, which is reliable.
-
-        For keyword-fallback servers we deliberately do **not** filter
-        on ``\\Seen`` here. Earlier versions did, but ``\\Seen`` can be
-        toggled by the user's mail client (or any other process that
-        opens the message), and we now rely on the coordinator's
-        in-memory ``_last_processed_versions`` mapping to skip already
-        imported (eic, date) pairs before doing real work — so an
-        accidentally re-fetched message is cheap, not duplicated.
+        On servers that support custom keywords this filters server-side
+        for messages without the ``$OkteProcessed`` keyword, narrowing
+        what we fetch. On servers without keyword support there's no
+        server-side filter at all — processed-state is tracked in HA
+        Store and the coordinator drops already-imported ``(eic, date)``
+        pairs before doing real work, so a re-fetched message costs at
+        most a parse, not a duplicate import.
         """
         if self.keyword_supported:
             return ["NOT", "KEYWORD", PROCESSED_KEYWORD]
@@ -385,13 +397,9 @@ def _detect_keyword_support(conn: imaplib.IMAP4, select_data: list[bytes]) -> bo
                 line = line.decode(errors="replace")
             if "\\*" in line:
                 return True
-    # Demoted from WARNING to DEBUG: the fallback path is now fully
-    # supported (the coordinator persists processed-state in HA Store
-    # and the IMAP filter no longer depends on `\Seen`), so this is
-    # just an informational note about server capabilities.
     _LOGGER.debug(
         "IMAP server does not advertise arbitrary keywords; "
-        "using HA-side persistence for processed-tracking."
+        "processed-state will be tracked entirely in HA Store."
     )
     return False
 

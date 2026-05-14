@@ -326,9 +326,9 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     session.mark_for_delete(old_uids)
                     session.expunge()
 
-            # 2. Find new messages to process. The SINCE bound prevents
-            # the search from re-scanning ancient mail on keyword-fallback
-            # servers where we don't filter by `\Seen` anymore.
+            # 2. Find new messages to process. The SINCE bound keeps the
+            # search cheap on keyword-fallback servers where we have no
+            # server-side processed-state filter at all.
             cutoff = datetime.now(tz=timezone.utc) - timedelta(
                 days=scan_window_days
             )

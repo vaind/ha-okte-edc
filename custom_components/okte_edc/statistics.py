@@ -146,15 +146,25 @@ def import_hourly_statistics(
         async_import_statistics,
     )
 
-    metadata = StatisticMetaData(
-        has_mean=False,
-        has_sum=True,
-        name=statistic_name,
-        source="recorder",
-        statistic_id=statistic_id,
-        unit_of_measurement="kWh",
-    )
-    async_import_statistics(hass, metadata, rows)
+    kwargs: dict = {
+        "has_sum": True,
+        "name": statistic_name,
+        "source": "recorder",
+        "statistic_id": statistic_id,
+        "unit_of_measurement": "kWh",
+    }
+    # HA 2025.3+ migrated from `has_mean=False` to
+    # `mean_type=StatisticMeanType.NONE`. The old field is deprecated
+    # and slated for removal in 2026.11. Use the new form when
+    # available, fall back for installations on the older API.
+    try:
+        from homeassistant.components.recorder.models import StatisticMeanType
+
+        kwargs["mean_type"] = StatisticMeanType.NONE
+    except ImportError:
+        kwargs["has_mean"] = False
+
+    async_import_statistics(hass, StatisticMetaData(**kwargs), rows)
 
 
 __all__ = [

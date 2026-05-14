@@ -23,7 +23,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfEnergy
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -171,18 +171,14 @@ async def async_setup_entry(
 
 
 def _service_device_info(entry: ConfigEntry) -> DeviceInfo:
-    """DeviceInfo for the per-config-entry hub.
-
-    Returned as a dict-compatible DeviceInfo so the conftest stub
-    (which uses a plain dict) can stand in during tests.
-    """
+    """DeviceInfo for the per-config-entry hub."""
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
         name=f"OKTE EDC mailbox ({entry.data.get('host', 'unknown')})",
         manufacturer="OKTE, a.s.",
         model="IMAP coordinator",
         configuration_url="https://edc.okte.sk",
-        entry_type="service",
+        entry_type=DeviceEntryType.SERVICE,
     )
 
 

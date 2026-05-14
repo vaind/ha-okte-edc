@@ -142,12 +142,11 @@ def test_imap_quote_folder_with_slash():
     assert _imap_quote("Archive/OKTE") == '"Archive/OKTE"'
 
 
-def test_unprocessed_state_criteria_keyword_fallback_does_not_filter_seen():
-    """Keyword-fallback servers must not depend on `\\Seen` for processed tracking.
+def test_unprocessed_state_criteria_branches_on_keyword_support():
+    """No server-side state filter at all on keyword-fallback servers.
 
-    The user's mail client (or another connection) can toggle `\\Seen`
-    independently; we treat it as a courtesy marker only. Dedup is the
-    coordinator's in-memory job in that case.
+    Processed-tracking on those servers is handled entirely in HA
+    Store; the IMAP server is not asked to filter or remember anything.
     """
     from okte_edc.imap_client import ImapSession
 
