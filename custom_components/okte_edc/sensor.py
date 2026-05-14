@@ -51,28 +51,32 @@ from .const import (
 )
 from .coordinator import OkteCoordinator
 
-# Energy sensors: cumulative kWh, total_increasing for Energy dashboard.
+# Energy sensors: current cumulative kWh value, used to show the latest
+# total on the device card. Deliberately no ``state_class`` — that would
+# trip HA's recorder into auto-compiling hourly statistics from sensor
+# state history every 5 minutes, racing with and clobbering the
+# explicit MSCONS-derived sums we publish as external statistics. The
+# Energy dashboard reads the external statistics directly (selectable
+# by their human-readable name from the source picker), not from these
+# entities.
 ENERGY_DESCRIPTIONS: dict[str, dict[str, SensorEntityDescription]] = {
     ROLE_OFFTAKE: {
         SUFFIX_GRID_IMPORT: SensorEntityDescription(
             key=SUFFIX_GRID_IMPORT,
             translation_key=SUFFIX_GRID_IMPORT,
             device_class=SensorDeviceClass.ENERGY,
-            state_class=SensorStateClass.TOTAL_INCREASING,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         ),
         SUFFIX_SHARED_IN: SensorEntityDescription(
             key=SUFFIX_SHARED_IN,
             translation_key=SUFFIX_SHARED_IN,
             device_class=SensorDeviceClass.ENERGY,
-            state_class=SensorStateClass.TOTAL_INCREASING,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         ),
         SUFFIX_TOTAL_CONSUMPTION: SensorEntityDescription(
             key=SUFFIX_TOTAL_CONSUMPTION,
             translation_key=SUFFIX_TOTAL_CONSUMPTION,
             device_class=SensorDeviceClass.ENERGY,
-            state_class=SensorStateClass.TOTAL_INCREASING,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         ),
     },
@@ -81,21 +85,18 @@ ENERGY_DESCRIPTIONS: dict[str, dict[str, SensorEntityDescription]] = {
             key=SUFFIX_GRID_RETURN,
             translation_key=SUFFIX_GRID_RETURN,
             device_class=SensorDeviceClass.ENERGY,
-            state_class=SensorStateClass.TOTAL_INCREASING,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         ),
         SUFFIX_SHARED_OUT: SensorEntityDescription(
             key=SUFFIX_SHARED_OUT,
             translation_key=SUFFIX_SHARED_OUT,
             device_class=SensorDeviceClass.ENERGY,
-            state_class=SensorStateClass.TOTAL_INCREASING,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         ),
         SUFFIX_TOTAL_EXPORT: SensorEntityDescription(
             key=SUFFIX_TOTAL_EXPORT,
             translation_key=SUFFIX_TOTAL_EXPORT,
             device_class=SensorDeviceClass.ENERGY,
-            state_class=SensorStateClass.TOTAL_INCREASING,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         ),
     },

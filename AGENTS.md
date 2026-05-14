@@ -12,16 +12,21 @@ This file documents the non-obvious constraints — the things you
 
 ## Non-obvious constraints
 
-**The statistic_id must equal the HA-derived entity_id.** Long-term
-statistics with `source="recorder"` are linked to a sensor entity by
-exact string match. Sensors use `_attr_has_entity_name = True`, which
-makes HA compose the entity_id from the device-name slug
-(`OKTE EDC <slug>` → `okte_edc_<slug>`) + the translation key. The
-coordinator's `statistic_id_for(eic, suffix)` in `const.py` constructs
-the matching string. If you change device naming, translation keys, or
-this helper without updating all three together, every imported row
-becomes an orphan that the Energy dashboard never sees. `tests/test_mscons.py::test_statistic_id_matches_ha_entity_id_derivation`
-pins the format — keep it green.
+**Statistics are external, not entity-linked.** The integration uses
+`async_add_external_statistics` (source = `okte_edc`), **not**
+`async_import_statistics` (source = `recorder`, entity-linked). The
+statistic_id is `okte_edc:<short_eic>_<suffix>` — see
+`statistic_id_for` in `const.py`. The reason: linking statistics to a
+`total_increasing` sensor entity makes HA's recorder auto-compile its
+own hourly sums from the sensor's state-change history every 5
+minutes, racing with and clobbering our explicit MSCONS data. External
+statistics live under a separate source key and HA's auto-compilation
+never touches them. The sensors stay (for current-value display on the
+device card) but deliberately have no `state_class` set, so HA
+doesn't try to auto-derive statistics from their state history either.
+`tests/test_mscons.py::test_statistic_id_uses_external_format` and
+`::test_statistic_name_is_human_readable` pin the formats; keep them
+green.
 
 **The mailbox is read-only by default.** The integration does **not**
 set `\Seen`, does **not** set any custom keyword, and fetches with

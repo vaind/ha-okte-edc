@@ -75,6 +75,7 @@ from .const import (
     detect_role,
     parse_sender_allowlist,
     statistic_id_for,
+    statistic_name_for,
 )
 from .imap_client import (
     Attachment,
@@ -418,7 +419,12 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             running += deltas[start_dt]
             rows.append({"start": start_dt, "state": running, "sum": running})
 
-        import_hourly_statistics(self.hass, statistic_id, None, rows)
+        import_hourly_statistics(
+            self.hass,
+            statistic_id,
+            statistic_name_for(eic, suffix),
+            rows,
+        )
         return running
 
     async def _get_sum_before(

@@ -145,21 +145,33 @@ def parse_sender_allowlist(raw: str | None) -> list[str]:
 def statistic_id_for(eic: str, suffix: str) -> str:
     """Return the long-term statistics ID for ``(eic, suffix)``.
 
-    Must equal the entity_id that Home Assistant derives for the
-    corresponding sensor; otherwise the imported statistics row is
-    orphaned and the Energy dashboard never picks it up.
+    Format: ``<DOMAIN>:<short_eic>_<suffix>``. The ``<DOMAIN>:``
+    prefix marks the statistic as **external** — written via
+    ``async_add_external_statistics`` and not linked to any sensor
+    entity. This is critical: linking statistics to a ``total_increasing``
+    sensor entity makes HA's recorder auto-compile hourly sums from the
+    sensor's state history every 5 minutes, racing with and clobbering
+    our explicit MSCONS-derived sums. External statistics live under
+    a separate ``source`` key and HA's auto-compilation never touches
+    them.
 
-    Our sensors use ``_attr_has_entity_name = True``, so HA composes the
-    entity_id from the device-name slug + the entity translation-key
-    slug. The device name template is ``"OKTE EDC <short_eic>"``, which
-    slugifies to ``okte_edc_<short_eic>``. The entity-name slug is the
-    suffix itself (``grid_import``, ``shared_in`` …).
-
-    Keeping the formula in one place documents the coupling and makes
-    sure the coordinator's write side and the sensor's read side can't
-    drift apart silently.
+    See ``import_hourly_statistics`` in ``statistics.py`` for the
+    write side and ``okte_edc.coordinator._get_sum_before`` /
+    ``_get_existing_hourly_stats_from`` for the read side. All three
+    share this format.
     """
-    return f"sensor.{DOMAIN}_{short_eic(eic)}_{suffix}"
+    return f"{DOMAIN}:{short_eic(eic)}_{suffix}"
+
+
+def statistic_name_for(eic: str, suffix: str) -> str:
+    """Human-readable label shown for the external statistic.
+
+    The Energy dashboard's source picker displays this name (since
+    external statistics have no entity to inherit a friendly name from).
+    Format is intentionally locale-independent so the dashboard label
+    stays stable across HA language switches.
+    """
+    return f"OKTE EDC {short_eic(eic)} {suffix.replace('_', ' ').capitalize()}"
 
 
 def short_eic(eic: str) -> str:

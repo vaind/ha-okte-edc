@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
+from .const import DOMAIN
 from .mscons import Quarter
 
 # HA imports are deferred to keep the pure aggregation helpers
@@ -135,21 +136,35 @@ def build_statistic_data(
 def import_hourly_statistics(
     hass,
     statistic_id: str,
-    statistic_name: str | None,
+    statistic_name: str,
     rows: list[dict],
 ) -> None:
-    """Push hourly rows to HA's recorder. Idempotent on (statistic_id, start)."""
+    """Push hourly rows to HA's recorder as **external** statistics.
+
+    Uses ``async_add_external_statistics`` (source = our DOMAIN) rather
+    than ``async_import_statistics`` (source = "recorder", entity-
+    linked). The reason: linking long-term statistics to a
+    ``total_increasing`` sensor entity makes HA's recorder auto-compile
+    hourly sums from the sensor's state-change history every 5 minutes,
+    racing with and frequently overwriting the values we explicitly
+    write. External statistics live under their own source key and HA's
+    background compilation never touches them.
+
+    Idempotent on ``(statistic_id, start)``.
+    """
     if not rows:
         return
     from homeassistant.components.recorder.models import StatisticMetaData
     from homeassistant.components.recorder.statistics import (
-        async_import_statistics,
+        async_add_external_statistics,
     )
 
     kwargs: dict = {
         "has_sum": True,
         "name": statistic_name,
-        "source": "recorder",
+        # Must match the ``<source>:`` prefix in `statistic_id` —
+        # `async_add_external_statistics` validates this.
+        "source": DOMAIN,
         "statistic_id": statistic_id,
         "unit_of_measurement": "kWh",
     }
@@ -164,7 +179,7 @@ def import_hourly_statistics(
     except ImportError:
         kwargs["has_mean"] = False
 
-    async_import_statistics(hass, StatisticMetaData(**kwargs), rows)
+    async_add_external_statistics(hass, StatisticMetaData(**kwargs), rows)
 
 
 __all__ = [

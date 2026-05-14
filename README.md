@@ -162,13 +162,26 @@ The integration creates one HA device per EIC; it does *not* configure
 the Energy dashboard for you. After install, go to
 **Settings → Dashboards → Energy** (see the [official Home Assistant
 Energy docs](https://www.home-assistant.io/docs/energy/) for the basics)
-and assign sensors as follows:
+and assign sources as follows.
 
-| Sensor                   | Source LIN | Energy dashboard slot  |
-| ------------------------ | ---------- | ---------------------- |
-| Off-take `grid_import`   | CPS15      | **Grid consumption**   |
-| Off-take `shared_in`     | SHA15      | **Solar production** (the sharing scheme acts as a free-energy source from the off-taker's side) |
-| Producer `grid_return`   | CPM15      | **Return to grid**     |
+**Important:** the long-term statistics that feed the Energy dashboard
+are published as **external statistics** (under the `okte_edc:` source
+prefix), not via the cumulative-kWh sensor entities. This is deliberate:
+linking statistics to a `total_increasing` sensor lets HA's recorder
+auto-compile parallel hourly sums from the sensor's state history every
+5 minutes, which races with and overwrites our explicit MSCONS data.
+External statistics live under their own source key and HA never
+touches them.
+
+So when configuring the Energy dashboard, pick **External**-type
+sources from the source picker (filtered/displayed by name), not the
+sensor entities of the same names.
+
+| Source name in the picker            | LIN    | Energy dashboard slot |
+| ------------------------------------ | ------ | --------------------- |
+| `OKTE EDC <short_eic> Grid import`   | CPS15  | **Grid consumption**  |
+| `OKTE EDC <short_eic> Shared in`     | SHA15  | **Solar production**  |
+| `OKTE EDC <short_eic> Grid return`   | CPM15  | **Return to grid**    |
 
 `total_consumption` (off-take PS15) and `total_export` (producer PM15)
 are reference / informational sensors and don't map to any dashboard
@@ -186,6 +199,28 @@ in the off-takers' `shared_in`.
   a separate Home Assistant instance for each location. Mixing
   different addresses into a single Energy view produces meaningless
   combined totals.
+
+### Migrating from a pre-external-statistics install
+
+Earlier releases wrote statistics under the cumulative-kWh sensor's
+own entity_id (`sensor.okte_edc_<slug>_<suffix>`). Those are now
+orphans — they're not updated anymore and don't show today's
+post-fix data. To migrate:
+
+1. Update the integration (HACS → reinstall, or restart HA after
+   pulling the latest commit).
+2. On the **OKTE EDC mailbox** service device, press
+   **Full mailbox scan**. This bypasses the dynamic SINCE bound and
+   re-imports every OKTE-subject email in the configured folder. The
+   recompute writes the data as external statistics under the new
+   `okte_edc:<short_eic>_<suffix>` IDs.
+3. Re-wire the Energy dashboard: remove the old `sensor.okte_edc_…`
+   entries from each slot and add the new external sources by their
+   `OKTE EDC <short_eic> …` names.
+4. Optional cleanup: **Developer Tools → Statistics**, filter by
+   `okte`, and click **Fix issue → Delete** on any `sensor.okte_edc_…`
+   rows that show "no state available". Those are the old entity-
+   linked orphans.
 
 ### Solar production is partially virtual
 
