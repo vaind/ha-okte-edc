@@ -69,6 +69,8 @@ from .const import (
     SENSOR_TO_LIN,
     SUFFIX_FILE_VERSION,
     SUFFIX_LAST_IMPORT,
+    SUFFIX_MEASUREMENT_DATE,
+    SUFFIX_PARSE_WARNINGS,
     SUFFIX_RECONCILIATION_DELTA,
     detect_role,
     parse_sender_allowlist,
@@ -125,6 +127,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # Per-EIC summary of the most recently processed file. Used by the
         # diagnostics dump for remote triage.
         self._last_import_summary: dict[str, dict[str, Any]] = {}
+        # Operational metrics surfaced on the service-level device.
+        self.last_poll_at: datetime | None = None
+        self.last_successful_poll_at: datetime | None = None
+        self.last_poll_stats: dict[str, Any] = {}
+        self.keyword_support: bool | None = None
 
         super().__init__(
             hass,
@@ -138,6 +145,23 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def enabled_eics(self) -> dict[str, str]:
         """Return {eic: role} for currently enabled metering points."""
         return self._enabled_eics
+
+    @property
+    def next_poll_at(self) -> datetime | None:
+        """Best-effort next-scheduled-poll timestamp.
+
+        Computed as ``last_poll_at + update_interval``. HA tracks the
+        actual scheduled callback internally but doesn't expose it; this
+        is close enough for a "when will the integration check again"
+        sensor (off by milliseconds at worst).
+        """
+        if self.last_poll_at is None or self.update_interval is None:
+            return None
+        return self.last_poll_at + self.update_interval
+
+    def last_import_summary_for(self, eic: str) -> dict[str, Any]:
+        """Return the most-recent-file summary for ``eic`` or an empty dict."""
+        return self._last_import_summary.get(eic, {})
 
     def update_from_options(self) -> None:
         """Apply config-entry option changes to runtime state.
@@ -177,6 +201,7 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         await self._seed_cumulative_if_needed()
 
+        self.last_poll_at = datetime.now(tz=timezone.utc)
         try:
             new_data = await self.hass.async_add_executor_job(self._poll_sync)
         except ImapAuthError as exc:
@@ -185,6 +210,7 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             raise ConfigEntryError(str(exc)) from exc
         except ImapConnectionError as exc:
             raise UpdateFailed(str(exc)) from exc
+        self.last_successful_poll_at = datetime.now(tz=timezone.utc)
 
         merged = dict(self.data or {})
         for eic, values in new_data.items():
@@ -280,6 +306,10 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         )
 
         session = self._client.open_session()
+        self.keyword_support = session.keyword_supported
+        matched_count = 0
+        processed_count = 0
+        skipped_count = 0
         try:
             # 1. Delete-after-N-days cleanup (only for processed messages).
             if cleanup_mode == CLEANUP_DELETE:
@@ -317,9 +347,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 datetime.now(tz=timezone.utc).date()
                 - timedelta(days=scan_window_days)
             )
+            matched_count = len(uids)
             for uid in uids:
                 msg = session.fetch_message(uid)
                 if msg is None:
+                    skipped_count += 1
                     continue
                 if sender_allowlist and msg.sender not in sender_allowlist:
                     _LOGGER.warning(
@@ -333,6 +365,7 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     )
                     # Don't mark as processed; if the user later adjusts
                     # the allowlist the message can still be picked up.
+                    skipped_count += 1
                     continue
                 if not msg.attachments:
                     _LOGGER.debug(
@@ -341,9 +374,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     )
                     # Don't mark as processed; let it be retried in case
                     # the user re-uploads / forwards a corrected version.
+                    skipped_count += 1
                     continue
                 successful = self._process_message(msg, min_file_date, updates)
                 if successful:
+                    processed_count += 1
                     session.mark_processed(uid)
                     if cleanup_mode == CLEANUP_ARCHIVE:
                         archive_folder = self.entry.options.get(
@@ -360,6 +395,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 session.expunge()
         finally:
             session.close()
+        self.last_poll_stats = {
+            "matched": matched_count,
+            "processed": processed_count,
+            "skipped": skipped_count,
+        }
         return updates
 
     def _process_message(
@@ -528,6 +568,8 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         eic_state[SUFFIX_RECONCILIATION_DELTA] = (
             data.reconciliation_max_delta_kwh
         )
+        eic_state[SUFFIX_MEASUREMENT_DATE] = data.measurement_date
+        eic_state[SUFFIX_PARSE_WARNINGS] = len(data.warnings)
 
 
 # ---------------------------------------------------------------------------

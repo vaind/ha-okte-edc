@@ -116,7 +116,8 @@ prefix (`24ZZSVYR…` → producer, anything else → off-take).
 
 ## Entities
 
-For each enabled EIC the integration creates:
+For each enabled EIC the integration creates a device with these
+sensors:
 
 | Suffix                 | Source LIN | Role      | Energy dashboard slot |
 | ---------------------- | ---------- | --------- | --------------------- |
@@ -126,12 +127,22 @@ For each enabled EIC the integration creates:
 | `grid_return`          | CPM15      | producer  | Return to grid        |
 | `shared_out`           | SHA15      | producer  | (informational)       |
 | `total_export`         | PM15       | producer  | (reference)           |
-| `last_import`          | —          | both      | diagnostic            |
+| `last_import`          | —          | both      | diagnostic (attrs: filename, quarter counts, daily kWh per LIN) |
 | `file_version`         | —          | both      | diagnostic            |
 | `reconciliation_delta` | —          | both      | diagnostic            |
+| `measurement_date`     | —          | both      | diagnostic — date of the data in the last file |
+| `parse_warnings`       | —          | both      | diagnostic — count of warnings (warning texts in attrs) |
 
-Entity IDs follow `sensor.okte_<short_eic>_<suffix>`, where `<short_eic>`
-is the lowercased last 8 alphanumeric characters of the EIC.
+Plus a separate per-integration "mailbox" device that exposes:
+
+- `next_mailbox_check` (timestamp) — when the next IMAP poll will fire.
+- `last_mailbox_check` (timestamp) — when the most recent poll attempted, with attributes `keyword_support`, `poll_interval_minutes`, and counts (`matched`, `processed`, `skipped`).
+- `last_successful_check` (timestamp) — when the most recent poll succeeded.
+- `Check mailbox now` button — runs a poll immediately, useful after forwarding a fresh email or to recover from a transient error.
+
+Per-EIC entity IDs follow `sensor.okte_edc_<short_eic>_<suffix>`,
+where `<short_eic>` is the lowercased last 8 alphanumeric characters
+of the EIC.
 
 ## Installation (HACS)
 

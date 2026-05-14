@@ -111,7 +111,15 @@
       "total_export": { "name": "Celkový export" },
       "last_import": { "name": "Posledný import" },
       "file_version": { "name": "Verzia súboru" },
-      "reconciliation_delta": { "name": "Odchýlka rekonciliácie" }
+      "reconciliation_delta": { "name": "Odchýlka rekonciliácie" },
+      "measurement_date": { "name": "Dátum merania" },
+      "parse_warnings": { "name": "Upozornenia parsera" },
+      "next_poll_at": { "name": "Ďalšia kontrola schránky" },
+      "last_poll_at": { "name": "Posledná kontrola schránky" },
+      "last_successful_poll_at": { "name": "Posledná úspešná kontrola" }
+    },
+    "button": {
+      "poll_now": { "name": "Skontrolovať schránku teraz" }
     }
   }
 }

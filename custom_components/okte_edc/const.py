@@ -88,6 +88,14 @@ SUFFIX_TOTAL_EXPORT: Final = "total_export"
 SUFFIX_LAST_IMPORT: Final = "last_import"
 SUFFIX_FILE_VERSION: Final = "file_version"
 SUFFIX_RECONCILIATION_DELTA: Final = "reconciliation_delta"
+SUFFIX_MEASUREMENT_DATE: Final = "measurement_date"
+SUFFIX_PARSE_WARNINGS: Final = "parse_warnings"
+
+# Service-level suffixes (live on a separate "IMAP coordinator" device,
+# not on per-EIC devices)
+SUFFIX_NEXT_POLL: Final = "next_poll_at"
+SUFFIX_LAST_POLL: Final = "last_poll_at"
+SUFFIX_LAST_SUCCESSFUL_POLL: Final = "last_successful_poll_at"
 
 # Mapping: (role, sensor suffix) -> LIN code that feeds the sensor.
 SENSOR_TO_LIN: Final[dict[tuple[str, str], str]] = {

@@ -37,6 +37,7 @@ def _install_ha_stubs() -> None:
 
     class _Platform:
         SENSOR = "sensor"
+        BUTTON = "button"
 
     class _EntityCategory:
         DIAGNOSTIC = "diagnostic"
@@ -200,6 +201,7 @@ def _install_ha_stubs() -> None:
     class _SensorDeviceClass:
         ENERGY = "energy"
         TIMESTAMP = "timestamp"
+        DATE = "date"
 
     class _SensorStateClass:
         TOTAL_INCREASING = "total_increasing"
@@ -209,6 +211,19 @@ def _install_ha_stubs() -> None:
     sensor.SensorEntityDescription = _SensorEntityDescription
     sensor.SensorDeviceClass = _SensorDeviceClass
     sensor.SensorStateClass = _SensorStateClass
+
+    button = types.ModuleType("homeassistant.components.button")
+
+    class _ButtonEntityDescription:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            self.key = kwargs.get("key")
+
+    class _ButtonEntity:
+        pass
+
+    button.ButtonEntity = _ButtonEntity
+    button.ButtonEntityDescription = _ButtonEntityDescription
 
     diagnostics_mod = types.ModuleType("homeassistant.components.diagnostics")
     diagnostics_mod.async_redact_data = lambda data, _: data
@@ -227,6 +242,7 @@ def _install_ha_stubs() -> None:
     sys.modules["homeassistant.helpers.storage"] = storage
     sys.modules["homeassistant.components"] = components
     sys.modules["homeassistant.components.sensor"] = sensor
+    sys.modules["homeassistant.components.button"] = button
     sys.modules["homeassistant.components.diagnostics"] = diagnostics_mod
 
     # voluptuous (used by config_flow); fall back to dummy if not installed.

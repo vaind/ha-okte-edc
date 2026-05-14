@@ -111,7 +111,15 @@
       "total_export": { "name": "Total export" },
       "last_import": { "name": "Last import" },
       "file_version": { "name": "File version" },
-      "reconciliation_delta": { "name": "Reconciliation delta" }
+      "reconciliation_delta": { "name": "Reconciliation delta" },
+      "measurement_date": { "name": "Measurement date" },
+      "parse_warnings": { "name": "Parse warnings" },
+      "next_poll_at": { "name": "Next mailbox check" },
+      "last_poll_at": { "name": "Last mailbox check" },
+      "last_successful_poll_at": { "name": "Last successful check" }
+    },
+    "button": {
+      "poll_now": { "name": "Check mailbox now" }
     }
   }
 }

@@ -1,11 +1,12 @@
 """Sensor entities for the OKTE EDC integration.
 
-Each enabled EIC produces one HA device with:
-- Three energy sensors (kWh, total_increasing) driven by MSCONS LIN series.
-- Three diagnostic sensors (last import time, file version, reconciliation delta).
+Each enabled EIC produces one HA device with energy + diagnostic
+sensors. A separate per-entry service device exposes integration-wide
+operational metrics (next/last poll, IMAP keyword-support flag).
 
-Sensor state values are read from the coordinator's ``data`` mapping; long
-term statistics are pushed independently in :mod:`statistics`.
+Sensor state values are read from the coordinator's ``data`` mapping
+and tracked attributes; long-term statistics are pushed independently
+in :mod:`statistics`.
 """
 
 from __future__ import annotations
@@ -34,6 +35,11 @@ from .const import (
     SUFFIX_GRID_IMPORT,
     SUFFIX_GRID_RETURN,
     SUFFIX_LAST_IMPORT,
+    SUFFIX_LAST_POLL,
+    SUFFIX_LAST_SUCCESSFUL_POLL,
+    SUFFIX_MEASUREMENT_DATE,
+    SUFFIX_NEXT_POLL,
+    SUFFIX_PARSE_WARNINGS,
     SUFFIX_RECONCILIATION_DELTA,
     SUFFIX_SHARED_IN,
     SUFFIX_SHARED_OUT,
@@ -109,14 +115,46 @@ DIAG_FILE_VERSION = SensorEntityDescription(
 DIAG_RECON_DELTA = SensorEntityDescription(
     key=SUFFIX_RECONCILIATION_DELTA,
     translation_key=SUFFIX_RECONCILIATION_DELTA,
-    # Deliberately no device_class. The value is a per-file diagnostic
-    # snapshot (the largest reconciliation drift observed in the most
-    # recent MSCONS file), not a cumulative energy reading. HA rejects
-    # device_class=ENERGY with state_class=MEASUREMENT — ENERGY requires
-    # total / total_increasing. We want measurement semantics on a
-    # value that happens to be expressed in kWh.
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+DIAG_MEASUREMENT_DATE = SensorEntityDescription(
+    key=SUFFIX_MEASUREMENT_DATE,
+    translation_key=SUFFIX_MEASUREMENT_DATE,
+    device_class=SensorDeviceClass.DATE,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+DIAG_PARSE_WARNINGS = SensorEntityDescription(
+    key=SUFFIX_PARSE_WARNINGS,
+    translation_key=SUFFIX_PARSE_WARNINGS,
+    state_class=SensorStateClass.MEASUREMENT,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+# ---------------------------------------------------------------------------
+# Service-level (per-config-entry) descriptions
+
+SVC_NEXT_POLL = SensorEntityDescription(
+    key=SUFFIX_NEXT_POLL,
+    translation_key=SUFFIX_NEXT_POLL,
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+SVC_LAST_POLL = SensorEntityDescription(
+    key=SUFFIX_LAST_POLL,
+    translation_key=SUFFIX_LAST_POLL,
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+SVC_LAST_SUCCESSFUL_POLL = SensorEntityDescription(
+    key=SUFFIX_LAST_SUCCESSFUL_POLL,
+    translation_key=SUFFIX_LAST_SUCCESSFUL_POLL,
+    device_class=SensorDeviceClass.TIMESTAMP,
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
@@ -126,10 +164,38 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create sensor entities for each enabled EIC."""
+    """Create sensor entities for each enabled EIC + service-level sensors."""
     coordinator: OkteCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = list(_iter_entities(entry, coordinator))
     async_add_entities(entities)
+
+
+def _service_device_info(entry: ConfigEntry) -> DeviceInfo:
+    """DeviceInfo for the per-config-entry hub.
+
+    Returned as a dict-compatible DeviceInfo so the conftest stub
+    (which uses a plain dict) can stand in during tests.
+    """
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=f"OKTE EDC mailbox ({entry.data.get('host', 'unknown')})",
+        manufacturer="OKTE, a.s.",
+        model="IMAP coordinator",
+        configuration_url="https://edc.okte.sk",
+        entry_type="service",
+    )
+
+
+def _eic_device_info(eic: str, role: str, entry: ConfigEntry) -> DeviceInfo:
+    slug = short_eic(eic)
+    return DeviceInfo(
+        identifiers={(DOMAIN, eic)},
+        name=f"OKTE EDC {slug}",
+        manufacturer="OKTE, a.s.",
+        model=f"SZE settlement ({role})",
+        configuration_url="https://edc.okte.sk",
+        via_device=(DOMAIN, entry.entry_id),
+    )
 
 
 def _iter_entities(
@@ -137,14 +203,19 @@ def _iter_entities(
 ) -> Iterable[SensorEntity]:
     for eic, role in coordinator.enabled_eics.items():
         for description in ENERGY_DESCRIPTIONS[role].values():
-            yield OkteSensor(coordinator, entry, eic, role, description)
-        yield OkteSensor(coordinator, entry, eic, role, DIAG_LAST_IMPORT)
-        yield OkteSensor(coordinator, entry, eic, role, DIAG_FILE_VERSION)
-        yield OkteSensor(coordinator, entry, eic, role, DIAG_RECON_DELTA)
+            yield OkteEicSensor(coordinator, entry, eic, role, description)
+        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_LAST_IMPORT)
+        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_FILE_VERSION)
+        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_RECON_DELTA)
+        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_MEASUREMENT_DATE)
+        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_PARSE_WARNINGS)
+    yield OkteServiceSensor(coordinator, entry, SVC_NEXT_POLL)
+    yield OkteServiceSensor(coordinator, entry, SVC_LAST_POLL)
+    yield OkteServiceSensor(coordinator, entry, SVC_LAST_SUCCESSFUL_POLL)
 
 
-class OkteSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
-    """Generic sensor reading from coordinator.data[eic][suffix]."""
+class OkteEicSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
+    """Per-EIC sensor reading from coordinator.data[eic][suffix]."""
 
     _attr_has_entity_name = True
 
@@ -159,21 +230,8 @@ class OkteSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._eic = eic
-        slug = short_eic(eic)
         self._attr_unique_id = f"{entry.entry_id}_{eic}_{description.key}"
-        # NOTE: deliberately no _attr_suggested_object_id. With
-        # _attr_has_entity_name = True the entity_id is composed by HA
-        # from the device-name slug ("OKTE EDC <slug>" → okte_edc_<slug>)
-        # and the entity translation-key slug. The matching statistic_id
-        # is constructed via const.statistic_id_for so the two stay in
-        # sync.
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, eic)},
-            name=f"OKTE EDC {slug}",
-            manufacturer="OKTE, a.s.",
-            model=f"SZE settlement ({role})",
-            configuration_url="https://edc.okte.sk",
-        )
+        self._attr_device_info = _eic_device_info(eic, role, entry)
 
     @property
     def native_value(self) -> Any:
@@ -182,7 +240,73 @@ class OkteSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         return eic_state.get(self.entity_description.key)
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Surface rich per-sensor attributes for the diagnostic sensors.
+
+        Keeps the device card uncluttered (no extra "filename" sensor),
+        while making the detail available when a user drills in.
+        """
+        summary = self.coordinator.last_import_summary_for(self._eic)
+        if not summary:
+            return None
+        key = self.entity_description.key
+        if key == SUFFIX_LAST_IMPORT:
+            attrs = {
+                "filename": summary.get("filename"),
+                "quarter_counts": summary.get("quarter_counts"),
+                "daily_kwh": summary.get("per_lin_kwh"),
+            }
+            return {k: v for k, v in attrs.items() if v is not None}
+        if key == SUFFIX_PARSE_WARNINGS:
+            warnings = summary.get("warnings") or []
+            return {"warnings": list(warnings)} if warnings else None
+        return None
+
+    @property
     def available(self) -> bool:
         if not super().available:
             return False
         return self._eic in self.coordinator.enabled_eics
+
+
+class OkteServiceSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
+    """Service-level sensor (lives on the per-entry hub device)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: OkteCoordinator,
+        entry: ConfigEntry,
+        description: SensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}_service_{description.key}"
+        self._attr_device_info = _service_device_info(entry)
+
+    @property
+    def native_value(self) -> Any:
+        key = self.entity_description.key
+        if key == SUFFIX_NEXT_POLL:
+            return self.coordinator.next_poll_at
+        if key == SUFFIX_LAST_POLL:
+            return self.coordinator.last_poll_at
+        if key == SUFFIX_LAST_SUCCESSFUL_POLL:
+            return self.coordinator.last_successful_poll_at
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.entity_description.key != SUFFIX_LAST_POLL:
+            return None
+        attrs: dict[str, Any] = {
+            "keyword_support": self.coordinator.keyword_support,
+            "poll_interval_minutes": (
+                self.coordinator.update_interval.total_seconds() / 60
+                if self.coordinator.update_interval
+                else None
+            ),
+        }
+        attrs.update(self.coordinator.last_poll_stats or {})
+        return {k: v for k, v in attrs.items() if v is not None}
