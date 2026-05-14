@@ -759,6 +759,14 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         The cumulative kWh value of each energy sensor is *not* set
         here; the async recompute path fills that in once the new
         running-sum series is known.
+
+        The per-EIC freshness/diagnostic sensors (last_import,
+        file_version, measurement_date, reconciliation_delta,
+        parse_warnings) only update when this file's measurement_date
+        is at least as recent as any previously imported file for the
+        same EIC. A backfill of an older day enriches the recorder
+        but doesn't roll those sensors backward in time — the "what
+        just ran" angle lives on the service device instead.
         """
         if data.warnings:
             for w in data.warnings:
@@ -772,7 +780,9 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 RECONCILIATION_THRESHOLD_KWH,
             )
 
-        eic_state = updates.setdefault(data.eic, {})
+        # Always enqueue the hourly buckets — backfills need to land
+        # in the recorder regardless of date order; the recompute
+        # path handles them correctly.
         for (mapped_role, suffix), lin in SENSOR_TO_LIN.items():
             if mapped_role != data.role:
                 continue
@@ -784,6 +794,20 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 (data.measurement_date, buckets)
             )
 
+        known_max = max(
+            (
+                d
+                for (eic, d) in self._last_processed_versions
+                if eic == data.eic
+            ),
+            default=None,
+        )
+        if known_max is not None and data.measurement_date < known_max:
+            # Older-than-latest backfill: stats land, freshness sensors
+            # keep pointing at whatever the latest day was.
+            return
+
+        eic_state = updates.setdefault(data.eic, {})
         self._last_import_summary[data.eic] = {
             "filename": att.filename,
             "measurement_date": data.measurement_date.isoformat(),
