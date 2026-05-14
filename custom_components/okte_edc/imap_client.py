@@ -385,9 +385,13 @@ def _detect_keyword_support(conn: imaplib.IMAP4, select_data: list[bytes]) -> bo
                 line = line.decode(errors="replace")
             if "\\*" in line:
                 return True
-    _LOGGER.warning(
+    # Demoted from WARNING to DEBUG: the fallback path is now fully
+    # supported (the coordinator persists processed-state in HA Store
+    # and the IMAP filter no longer depends on `\Seen`), so this is
+    # just an informational note about server capabilities.
+    _LOGGER.debug(
         "IMAP server does not advertise arbitrary keywords; "
-        "falling back to \\Seen for processed-tracking."
+        "using HA-side persistence for processed-tracking."
     )
     return False
 
