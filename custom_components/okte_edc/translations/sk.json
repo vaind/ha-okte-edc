@@ -119,7 +119,8 @@
       "last_successful_poll_at": { "name": "Posledná úspešná kontrola" }
     },
     "button": {
-      "poll_now": { "name": "Skontrolovať schránku teraz" }
+      "poll_now": { "name": "Skontrolovať schránku teraz" },
+      "full_rescan": { "name": "Úplné prehľadanie schránky" }
     }
   }
 }

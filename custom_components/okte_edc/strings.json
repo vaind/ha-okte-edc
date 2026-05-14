@@ -119,7 +119,8 @@
       "last_successful_poll_at": { "name": "Last successful check" }
     },
     "button": {
-      "poll_now": { "name": "Check mailbox now" }
+      "poll_now": { "name": "Check mailbox now" },
+      "full_rescan": { "name": "Full mailbox scan" }
     }
   }
 }

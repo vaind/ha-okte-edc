@@ -78,7 +78,6 @@ from .const import (
 )
 from .imap_client import (
     Attachment,
-    FetchedMessage,
     ImapAuthError,
     ImapClient,
     ImapConnectionError,
@@ -86,7 +85,7 @@ from .imap_client import (
 )
 from .mscons import DailyData, MsconsParseError, parse_mscons
 from .statistics import (
-    build_statistic_data,
+    HourlyBucket,
     get_last_cumulative,
     import_hourly_statistics,
     quarters_to_hourly,
@@ -131,6 +130,11 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.last_poll_at: datetime | None = None
         self.last_successful_poll_at: datetime | None = None
         self.last_poll_stats: dict[str, Any] = {}
+        # One-shot override: the next poll bypasses the dynamic SINCE
+        # cutoff and asks the IMAP server for everything matching the
+        # subject filter. Set by the "Full mailbox scan" diagnostic
+        # button; auto-reset after the poll completes.
+        self._force_full_scan = False
 
         super().__init__(
             hass,
@@ -161,6 +165,17 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def last_import_summary_for(self, eic: str) -> dict[str, Any]:
         """Return the most-recent-file summary for ``eic`` or an empty dict."""
         return self._last_import_summary.get(eic, {})
+
+    async def async_trigger_full_rescan(self) -> None:
+        """Run an immediate poll with the SINCE cutoff disabled.
+
+        Used by the "Full mailbox scan" diagnostic button to pull in
+        older OKTE mail that's outside the dynamic SINCE window —
+        forwarded historical messages, V2 corrections that arrived after
+        we'd already moved our SINCE bound past them, etc.
+        """
+        self._force_full_scan = True
+        await self.async_request_refresh()
 
     # Number of days of slack to keep in the steady-state SINCE bound.
     # OKTE has been observed to issue V2/V3 correction files a few days
@@ -217,7 +232,8 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         now_local = _local_now(self.entry)
         in_window = _within_window(self.entry, now_local)
-        if not in_window and self._first_refresh_done:
+        bypass_window = self._force_full_scan
+        if not in_window and self._first_refresh_done and not bypass_window:
             _LOGGER.debug(
                 "Outside polling window (%s); skipping IMAP fetch",
                 now_local.strftime("%H:%M"),
@@ -225,32 +241,42 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             return self.data or {}
         if not in_window:
             _LOGGER.debug(
-                "Outside polling window but this is the first refresh "
-                "after setup/restart — polling anyway"
+                "Outside polling window but %s — polling anyway",
+                "full rescan requested" if bypass_window else "first refresh",
             )
 
         await self._seed_cumulative_if_needed()
 
         self.last_poll_at = datetime.now(tz=timezone.utc)
         try:
-            new_data = await self.hass.async_add_executor_job(self._poll_sync)
+            updates, pending_by_stat = await self.hass.async_add_executor_job(
+                self._poll_sync
+            )
         except ImapAuthError as exc:
             raise ConfigEntryAuthFailed(str(exc)) from exc
         except ImapFolderError as exc:
             raise ConfigEntryError(str(exc)) from exc
         except ImapConnectionError as exc:
             raise UpdateFailed(str(exc)) from exc
+
+        # Async import path: each affected stat_id is recomputed from
+        # its earliest changed date forward, so V2 corrections and out-
+        # of-order backfills land at the correct cumulative offset.
+        for (eic, suffix), items in pending_by_stat.items():
+            final_sum = await self._recompute_and_import_stat(
+                eic, suffix, items
+            )
+            if final_sum is not None:
+                self._last_cumulative[(eic, suffix)] = final_sum
+                updates.setdefault(eic, {})[suffix] = final_sum
+
         self.last_successful_poll_at = datetime.now(tz=timezone.utc)
 
         merged = dict(self.data or {})
-        for eic, values in new_data.items():
+        for eic, values in updates.items():
             merged.setdefault(eic, {}).update(values)
         self._first_refresh_done = True
-        if new_data:
-            # Only write the store when something actually changed in
-            # `_last_processed_versions`. The `new_data` dict is populated
-            # in `_import_data`, which is the same path that mutates the
-            # versions map, so non-empty `new_data` implies a change.
+        if pending_by_stat:
             await self._save_state()
         return merged
 
@@ -313,11 +339,168 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 self._last_cumulative[key] = last_sum or 0.0
                 self._cumulative_seeded.add(key)
 
+    # ----- async recompute & import -----------------------------------
+
+    async def _recompute_and_import_stat(
+        self,
+        eic: str,
+        suffix: str,
+        new_items: list[tuple[date, list[HourlyBucket]]],
+    ) -> float | None:
+        """Rewrite hourly stats for ``(eic, suffix)`` from the earliest
+        changed date forward.
+
+        Algorithm (uniform for all imports — fresh data, V2 corrections,
+        backfill of older dates):
+
+        1. Pin a ``baseline_sum`` = the recorder's sum at the last hour
+           strictly before the earliest changed date (or zero if no
+           prior data).
+        2. Read every existing hourly row at or after that date and
+           recover its per-hour kWh delta from the existing sum series.
+        3. Overlay the new hourly kWh values from this batch on top of
+           that map, replacing any old values for hours we have new
+           data for.
+        4. Walk the merged hours in ascending order, recomputing the
+           running sum from ``baseline_sum``.
+        5. Push the recomputed rows to the recorder. ``async_import_statistics``
+           upserts on ``(statistic_id, start)``, so unchanged hours
+           round-trip with the same delta but a possibly different
+           cumulative sum (correcting for any earlier overlay).
+
+        Returns the final running sum, or None if there was no work to
+        do (caller uses this to update ``_last_cumulative``).
+        """
+        if not new_items:
+            return None
+        statistic_id = statistic_id_for(eic, suffix)
+
+        earliest_date = min(d for d, _ in new_items)
+        from_utc = _local_date_start_utc(
+            earliest_date, self.entry
+        )
+
+        baseline_sum = await self._get_sum_before(statistic_id, from_utc)
+        existing = await self._get_existing_hourly_stats_from(
+            statistic_id, from_utc
+        )
+
+        # Reconstruct per-hour deltas from the existing sum series.
+        deltas: dict[datetime, float] = {}
+        prev = baseline_sum
+        for row in sorted(existing, key=lambda r: _row_start_dt(r["start"])):
+            s = row.get("sum")
+            if s is None:
+                continue
+            start_dt = _row_start_dt(row["start"])
+            deltas[start_dt] = float(s) - prev
+            prev = float(s)
+
+        # Overlay the new buckets.
+        for _d, buckets in new_items:
+            for bucket in buckets:
+                deltas[bucket.start_utc] = bucket.kwh
+
+        if not deltas:
+            return None
+
+        rows: list[dict[str, Any]] = []
+        running = baseline_sum
+        for start_dt in sorted(deltas):
+            running += deltas[start_dt]
+            rows.append({"start": start_dt, "state": running, "sum": running})
+
+        import_hourly_statistics(self.hass, statistic_id, None, rows)
+        return running
+
+    async def _get_sum_before(
+        self, statistic_id: str, before_utc: datetime
+    ) -> float:
+        """Return the cumulative sum at the last hourly row strictly before ``before_utc``."""
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
+
+        # 30-day lookback is plenty: HA's hourly statistics are
+        # contiguous for an active sensor, so the most recent prior
+        # bucket is at most ~1 hour back in steady state.
+        lookback_start = before_utc - timedelta(days=30)
+        instance = get_instance(self.hass)
+        result = await instance.async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            lookback_start,
+            before_utc,
+            {statistic_id},
+            "hour",
+            None,
+            {"sum"},
+        )
+        rows = result.get(statistic_id, [])
+        if not rows:
+            return 0.0
+        latest = max(rows, key=lambda r: _row_start_dt(r["start"]))
+        sum_val = latest.get("sum")
+        return float(sum_val) if sum_val is not None else 0.0
+
+    async def _get_existing_hourly_stats_from(
+        self, statistic_id: str, from_utc: datetime
+    ) -> list[dict[str, Any]]:
+        """Return all hourly rows for ``statistic_id`` with ``start >= from_utc``."""
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
+
+        # Open-ended end: query 'far enough into the future' to cover
+        # every row HA has on file.
+        end = datetime.now(tz=timezone.utc) + timedelta(days=1)
+        instance = get_instance(self.hass)
+        result = await instance.async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            from_utc,
+            end,
+            {statistic_id},
+            "hour",
+            None,
+            {"sum"},
+        )
+        return result.get(statistic_id, [])
+
     # ----- sync poll body ----------------------------------------------
 
-    def _poll_sync(self) -> dict[str, dict[str, Any]]:
-        """Run one IMAP poll cycle (sync, executed in HA executor)."""
+    def _poll_sync(
+        self,
+    ) -> tuple[
+        dict[str, dict[str, Any]],
+        dict[tuple[str, str], list[tuple[date, list[HourlyBucket]]]],
+    ]:
+        """Run one IMAP poll cycle (sync, executed in HA executor).
+
+        Returns ``(updates, pending_by_stat)``:
+
+        - ``updates`` is the per-EIC sensor-state dict the coordinator
+          merges into ``self.data``. Non-cumulative diagnostic state
+          (last_import timestamp, file_version, reconciliation_delta,
+          measurement_date, parse_warnings) is populated here. The
+          cumulative energy values are filled in later, after the
+          async recompute pass writes the new statistic sums.
+        - ``pending_by_stat`` is the work the async caller passes to
+          ``_recompute_and_import_stat``: per (eic, suffix), the list
+          of (date, hourly_buckets) tuples that need to land in the
+          recorder. All cumulative-sum maths happens in the recompute
+          path so that out-of-order imports (V2 corrections that arrive
+          in a later poll than V1, or backfill of dates older than
+          what's already in the recorder) end up with correct sums for
+          every subsequent hour.
+        """
         updates: dict[str, dict[str, Any]] = {}
+        pending_by_stat: dict[
+            tuple[str, str], list[tuple[date, list[HourlyBucket]]]
+        ] = {}
+
         cleanup_mode = self.entry.options.get(
             OPT_EMAIL_CLEANUP, DEFAULT_EMAIL_CLEANUP
         )
@@ -334,6 +517,10 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 OPT_SENDER_ALLOWLIST, DEFAULT_SENDER_ALLOWLIST
             )
         )
+
+        # Consume the full-rescan flag (one-shot).
+        force_full_scan = self._force_full_scan
+        self._force_full_scan = False
 
         session = self._client.open_session()
         matched_count = 0
@@ -357,14 +544,21 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     session.mark_for_delete(old_uids)
                     session.expunge()
 
-            # 2. Find new messages. The SINCE bound is the more recent of
-            # the configured scan_window_days fallback (first run / fresh
-            # install) and `last_processed_date - 7 days` (steady-state),
-            # so once the integration is caught up each poll only asks
-            # the server for ~a week of mail. The 7-day buffer covers
-            # OKTE V2/V3 correction files which can arrive a few days
-            # after the original.
-            cutoff = self._compute_search_cutoff(scan_window_days)
+            # 2. Find new messages.
+            if force_full_scan:
+                _LOGGER.info(
+                    "Full mailbox scan requested; ignoring dynamic SINCE cutoff"
+                )
+                cutoff = None
+            else:
+                # The SINCE bound is the more recent of the configured
+                # scan_window_days fallback (first run / fresh install)
+                # and `last_processed_date - 7 days` (steady-state),
+                # so once the integration is caught up each poll only
+                # asks the server for ~a week of mail. The 7-day buffer
+                # covers OKTE V2/V3 correction files which can arrive a
+                # few days after the original.
+                cutoff = self._compute_search_cutoff(scan_window_days)
             uids = session.search_unprocessed_uids(since=cutoff)
             if max_backfill and len(uids) > max_backfill:
                 _LOGGER.warning(
@@ -377,10 +571,17 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 uids = uids[-max_backfill:]
 
             min_file_date = (
-                datetime.now(tz=timezone.utc).date()
+                None
+                if force_full_scan
+                else datetime.now(tz=timezone.utc).date()
                 - timedelta(days=scan_window_days)
             )
             matched_count = len(uids)
+
+            # Fetch + parse + filter all candidates first so we can sort
+            # them chronologically before importing. Each item is
+            # (uid, att, parsed_data).
+            candidates: list[tuple[bytes, Attachment, DailyData]] = []
             for uid in uids:
                 msg = session.fetch_message(uid)
                 if msg is None:
@@ -396,8 +597,6 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                         msg.sender or "<unknown>",
                         sender_allowlist,
                     )
-                    # Don't mark as processed; if the user later adjusts
-                    # the allowlist the message can still be picked up.
                     skipped_count += 1
                     continue
                 if not msg.attachments:
@@ -405,148 +604,128 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                         "Skipping UID %s — subject matched but no MSCONS attachments",
                         uid,
                     )
-                    # Don't mark as processed; let it be retried in case
-                    # the user re-uploads / forwards a corrected version.
                     skipped_count += 1
                     continue
-                successful = self._process_message(msg, min_file_date, updates)
-                if successful:
-                    processed_count += 1
-                    if cleanup_mode == CLEANUP_ARCHIVE:
-                        archive_folder = self.entry.options.get(
-                            OPT_ARCHIVE_FOLDER, DEFAULT_ARCHIVE_FOLDER
+
+                for att in msg.attachments:
+                    try:
+                        file_date = _parse_file_date(att.file_date)
+                    except ValueError:
+                        _LOGGER.warning(
+                            "Skipping attachment with bad date %s",
+                            att.filename,
                         )
-                        ok = session.archive(uid, archive_folder)
-                        if not ok:
-                            _LOGGER.warning(
-                                "Archive folder %s missing; falling back "
-                                "to leave-in-place",
-                                archive_folder,
-                            )
+                        continue
+                    if (
+                        min_file_date is not None
+                        and file_date < min_file_date
+                    ):
+                        continue
+                    if att.eic not in self._enabled_eics:
+                        continue
+                    prev_version = self._last_processed_versions.get(
+                        (att.eic, file_date)
+                    )
+                    if (
+                        prev_version is not None
+                        and prev_version >= att.file_version
+                    ):
+                        continue
+                    try:
+                        data = parse_mscons(att.payload)
+                    except MsconsParseError as exc:
+                        _LOGGER.error(
+                            "Failed to parse %s: %s",
+                            att.filename,
+                            exc,
+                        )
+                        continue
+                    if att.eic.upper() != data.eic.upper():
+                        _LOGGER.warning(
+                            "Attachment %s declares EIC %s in filename but %s "
+                            "in XML PLACE_ID; rejecting to prevent EIC spoofing",
+                            att.filename,
+                            att.eic,
+                            data.eic,
+                        )
+                        continue
+                    if file_date != data.measurement_date:
+                        _LOGGER.warning(
+                            "Attachment %s declares date %s in filename but "
+                            "XML covers %s; rejecting due to date mismatch",
+                            att.filename,
+                            file_date.isoformat(),
+                            data.measurement_date.isoformat(),
+                        )
+                        continue
+                    candidates.append((uid, att, data))
+
+            # Sort by (measurement_date asc, file_version desc) so higher
+            # versions of the same date come first. The de-dup loop then
+            # keeps only the first occurrence per (eic, date) = the
+            # highest version available in this batch.
+            candidates.sort(
+                key=lambda c: (c[2].measurement_date, -c[1].file_version)
+            )
+
+            seen_keys: set[tuple[str, date]] = set()
+            deduped: list[tuple[bytes, Attachment, DailyData]] = []
+            for uid, att, data in candidates:
+                key = (att.eic, data.measurement_date)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                deduped.append((uid, att, data))
+
+            # Re-sort ascending by date for chronological processing.
+            deduped.sort(key=lambda c: c[2].measurement_date)
+
+            for uid, att, data in deduped:
+                self._collect_pending(att, data, updates, pending_by_stat)
+                self._last_processed_versions[
+                    (att.eic, data.measurement_date)
+                ] = att.file_version
+                processed_count += 1
+
+                if cleanup_mode == CLEANUP_ARCHIVE:
+                    archive_folder = self.entry.options.get(
+                        OPT_ARCHIVE_FOLDER, DEFAULT_ARCHIVE_FOLDER
+                    )
+                    ok = session.archive(uid, archive_folder)
+                    if not ok:
+                        _LOGGER.warning(
+                            "Archive folder %s missing; falling back "
+                            "to leave-in-place",
+                            archive_folder,
+                        )
+
             if cleanup_mode == CLEANUP_ARCHIVE:
                 session.expunge()
         finally:
             session.close()
+
         self.last_poll_stats = {
             "matched": matched_count,
             "processed": processed_count,
             "skipped": skipped_count,
         }
-        return updates
+        return updates, pending_by_stat
 
-    def _process_message(
-        self,
-        msg: FetchedMessage,
-        min_file_date: date,
-        updates: dict[str, dict[str, Any]],
-    ) -> bool:
-        """Process attachments in one email.
-
-        Returns True iff at least one attachment was imported (or was
-        already up-to-date for a known EIC) — i.e. it's safe to mark the
-        message as processed.
-        """
-        had_imported = False
-        for att in msg.attachments:
-            try:
-                file_date = _parse_file_date(att.file_date)
-            except ValueError:
-                _LOGGER.warning(
-                    "Skipping attachment with bad date %s",
-                    att.filename,
-                )
-                continue
-            if file_date < min_file_date:
-                _LOGGER.debug(
-                    "Skipping old attachment %s (outside scan_window_days)",
-                    att.filename,
-                )
-                had_imported = True
-                continue
-            if att.eic not in self._enabled_eics:
-                _LOGGER.debug(
-                    "Skipping attachment for EIC %s — not enabled",
-                    att.eic,
-                )
-                had_imported = True  # don't keep refetching this email
-                continue
-
-            prev_version = self._last_processed_versions.get(
-                (att.eic, file_date)
-            )
-            if prev_version is not None and prev_version >= att.file_version:
-                _LOGGER.debug(
-                    "Already imported %s at V%d (>= V%d)",
-                    att.filename,
-                    prev_version,
-                    att.file_version,
-                )
-                had_imported = True
-                continue
-
-            try:
-                data = parse_mscons(att.payload)
-            except MsconsParseError as exc:
-                _LOGGER.error(
-                    "Failed to parse %s: %s — leaving email unprocessed",
-                    att.filename,
-                    exc,
-                )
-                # Don't set had_imported; the email stays unprocessed so a
-                # parser fix on next release picks it up.
-                continue
-
-            # Defense-in-depth: the filename gates the enabled-EIC allowlist
-            # check above, but the XML PLACE_ID is what we'd actually write
-            # statistics for. A spoofed file could declare one EIC in the
-            # name and another in the payload to write under an EIC the user
-            # didn't enable — reject the mismatch.
-            if att.eic.upper() != data.eic.upper():
-                _LOGGER.warning(
-                    "Attachment %s declares EIC %s in filename but %s in "
-                    "XML PLACE_ID; rejecting to prevent EIC spoofing",
-                    att.filename,
-                    att.eic,
-                    data.eic,
-                )
-                continue
-
-            # Same defense for the measurement date: the filename's
-            # YYYYMMDD is what we use to key the dedup map, but the XML's
-            # quarter timestamps determine which hour bucket statistics
-            # land in. If the two disagree the file is either misnamed
-            # by OKTE (very rare) or tampered with — reject either way.
-            if file_date != data.measurement_date:
-                _LOGGER.warning(
-                    "Attachment %s declares date %s in filename but XML "
-                    "measurements cover %s; rejecting due to date mismatch",
-                    att.filename,
-                    file_date.isoformat(),
-                    data.measurement_date.isoformat(),
-                )
-                continue
-
-            try:
-                self._import_data(att, data, updates)
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.exception(
-                    "Failed to import statistics for %s: %s",
-                    att.filename,
-                    exc,
-                )
-                continue
-
-            self._last_processed_versions[(att.eic, file_date)] = att.file_version
-            had_imported = True
-        return had_imported
-
-    def _import_data(
+    def _collect_pending(
         self,
         att: Attachment,
         data: DailyData,
         updates: dict[str, dict[str, Any]],
+        pending_by_stat: dict[
+            tuple[str, str], list[tuple[date, list[HourlyBucket]]]
+        ],
     ) -> None:
-        """Push hourly statistics for one parsed file and update sensor state."""
+        """Stage one parsed file's hourly buckets and diagnostic state.
+
+        The cumulative kWh value of each energy sensor is *not* set
+        here; the async recompute path fills that in once the new
+        running-sum series is known.
+        """
         if data.warnings:
             for w in data.warnings:
                 _LOGGER.warning("[%s] %s", att.filename, w)
@@ -559,24 +738,17 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 RECONCILIATION_THRESHOLD_KWH,
             )
 
-        role = data.role
         eic_state = updates.setdefault(data.eic, {})
-
         for (mapped_role, suffix), lin in SENSOR_TO_LIN.items():
-            if mapped_role != role:
+            if mapped_role != data.role:
                 continue
             quarters = data.series.get(lin)
             if not quarters:
                 continue
             buckets = quarters_to_hourly(quarters)
-            key = (data.eic, suffix)
-            starting_sum = self._last_cumulative.get(key, 0.0)
-            rows = build_statistic_data(buckets, starting_sum=starting_sum)
-            statistic_id = statistic_id_for(data.eic, suffix)
-            import_hourly_statistics(self.hass, statistic_id, None, rows)
-            if rows:
-                self._last_cumulative[key] = rows[-1].get("sum", starting_sum)
-                eic_state[suffix] = self._last_cumulative[key]
+            pending_by_stat.setdefault((data.eic, suffix), []).append(
+                (data.measurement_date, buckets)
+            )
 
         self._last_import_summary[data.eic] = {
             "filename": att.filename,
@@ -592,10 +764,6 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             "warnings": list(data.warnings),
         }
         eic_state[SUFFIX_LAST_IMPORT] = datetime.now(tz=timezone.utc)
-        # Surface the *filename* version (att.file_version) rather than the
-        # BGM version: in real OKTE files the BGM DOCUMENTNUMBER doesn't
-        # encode a `_V<n>` suffix, so parsing it always returns 1. The
-        # filename is the actual version-of-record for SZE_7 publication.
         eic_state[SUFFIX_FILE_VERSION] = att.file_version
         eic_state[SUFFIX_RECONCILIATION_DELTA] = (
             data.reconciliation_max_delta_kwh
@@ -730,3 +898,29 @@ def _parse_hhmm(value: str) -> time:
 
 def _parse_file_date(yyyymmdd: str) -> date:
     return datetime.strptime(yyyymmdd, "%Y%m%d").date()
+
+
+def _local_date_start_utc(d: date, entry: ConfigEntry) -> datetime:
+    """Return the UTC instant of 00:00 local-time on date ``d``.
+
+    Used by the recompute path to translate an MSCONS measurement date
+    into the boundary timestamp the recorder's hourly buckets are
+    keyed by.
+    """
+    tz_name = entry.options.get(OPT_POLL_TIMEZONE, DEFAULT_POLL_TIMEZONE)
+    local = datetime(d.year, d.month, d.day, tzinfo=ZoneInfo(tz_name))
+    return local.astimezone(timezone.utc)
+
+
+def _row_start_dt(value: Any) -> datetime:
+    """Normalise a statistics row's ``start`` field to an aware UTC datetime.
+
+    HA's recorder returns ``start`` as either a ``datetime`` (older HA)
+    or a unix timestamp float (newer HA, since the statistics-storage
+    rewrite).
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    raise TypeError(f"Cannot interpret statistics start as datetime: {value!r}")

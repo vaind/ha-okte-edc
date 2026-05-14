@@ -139,6 +139,7 @@ Plus a separate per-integration "mailbox" device that exposes:
 - `last_mailbox_check` (timestamp) — when the most recent poll attempted, with attributes `poll_interval_minutes` and counts (`matched`, `processed`, `skipped`).
 - `last_successful_check` (timestamp) — when the most recent poll succeeded.
 - `Check mailbox now` button — runs a poll immediately, useful after forwarding a fresh email or to recover from a transient error.
+- `Full mailbox scan` button — the same as above, but with the dynamic SINCE cutoff disabled. The integration normally narrows IMAP search to ~1 week of mail once it's caught up; pressing this asks the server for every OKTE-subject message in the folder. Useful for backfilling forwarded historical mail or picking up an OKTE V2/V3 correction whose original date has slipped outside the steady-state window.
 
 Per-EIC entity IDs follow `sensor.okte_edc_<short_eic>_<suffix>`,
 where `<short_eic>` is the lowercased last 8 alphanumeric characters
