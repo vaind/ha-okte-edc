@@ -4,17 +4,14 @@ The integration polls a mailbox on a configurable cadence and never holds a
 long-lived connection, so a tiny sync wrapper around ``imaplib`` is plenty.
 The coordinator runs all client methods through the HA executor.
 
-Processed-state for messages is tracked in two places:
-
-- On servers that advertise ``\\*`` in PERMANENTFLAGS (i.e. accept custom
-  user keywords), the integration sets ``$OkteProcessed`` on each
-  successfully processed message and uses ``NOT KEYWORD $OkteProcessed``
-  as a server-side fetch filter to keep poll bandwidth bounded.
-- On servers without that capability, processed-state lives entirely
-  in HA Store (per-entry JSON keyed by ``(eic, measurement_date)``)
-  and the IMAP server is not asked to remember anything. The
-  integration deliberately does not modify the user's ``\\Seen``
-  state — that flag belongs to the user's mail client.
+The client treats the mailbox as read-only: messages are fetched with
+``BODY.PEEK[]`` (no ``\\Seen`` side-effect) and the integration never
+sets any flags or custom keywords on the user's mail. Processed-state
+is tracked entirely in HA Store (per-entry JSON keyed by ``(eic,
+measurement_date)``); see :mod:`okte_edc.coordinator`. The only
+modifications the client makes are the ones explicitly requested by
+the user's cleanup-mode setting (move to archive folder, delete after
+N days).
 """
 
 from __future__ import annotations
@@ -35,7 +32,6 @@ from .const import (
     FILENAME_RE,
     MAX_DECOMPRESSED_XML_BYTES,
     MAX_RAW_ATTACHMENT_BYTES,
-    PROCESSED_KEYWORD,
     SUBJECT_SUBSTRING,
 )
 
@@ -83,27 +79,23 @@ class ImapSession:
         self,
         connection: imaplib.IMAP4,
         folder: str,
-        *,
-        keyword_supported: bool,
     ) -> None:
         self._conn = connection
         self._folder = folder
-        self.keyword_supported = keyword_supported
 
     # ----- search / fetch ------------------------------------------------
 
     def search_unprocessed_uids(
         self, since: datetime | None = None
     ) -> list[bytes]:
-        """Return UIDs of messages matching the OKTE subject that are not yet processed.
+        """Return UIDs of messages matching the OKTE subject within the window.
 
-        ``since`` bounds the search to recent messages — important for
-        keyword-fallback servers where there's no IMAP-side processed
-        filter and we re-fetch every matching message in the window
-        each cycle (the coordinator's in-memory state dedups, but the
-        bandwidth is bounded by the time window).
+        There is no server-side processed filter: the coordinator's
+        HA-Store-backed dedup map decides per-message whether to import.
+        ``since`` bounds the search to keep poll cost predictable on
+        large mailboxes.
         """
-        criteria: list[str] = list(self._unprocessed_state_criteria())
+        criteria: list[str] = []
         if since is not None:
             criteria += ["SINCE", since.strftime("%d-%b-%Y")]
         return self._search_with_subject_filter(*criteria)
@@ -172,19 +164,20 @@ class ImapSession:
             ["TEXT", narrow_token],
         ]
 
-    def search_processed_before(self, before: datetime) -> list[bytes]:
-        """Return UIDs of already-processed messages older than ``before``."""
+    def search_subject_before(self, before: datetime) -> list[bytes]:
+        """Return UIDs of OKTE-subject messages older than ``before``.
+
+        Used by the ``delete_after_days`` cleanup. Semantically this is
+        "old OKTE mail" rather than "old-and-processed OKTE mail": any
+        message in the configured folder whose subject matches the
+        OKTE filter and which is older than the cutoff is in scope.
+        A user enabling delete-after-N-days is explicitly opting into
+        time-based cleanup of OKTE mail, so a message that's been
+        sitting in the inbox for a month without being processed is
+        also fair game.
+        """
         before_str = before.strftime("%d-%b-%Y")
-        if self.keyword_supported:
-            criteria = ["KEYWORD", PROCESSED_KEYWORD, "BEFORE", before_str]
-        else:
-            # Without keyword support we can't reliably distinguish processed
-            # from any other read message; conservatively no-op.
-            return []
-        typ, data = self._conn.uid("SEARCH", None, *criteria)
-        if typ != "OK" or not data or not data[0]:
-            return []
-        return data[0].split()
+        return self._search_with_subject_filter("BEFORE", before_str)
 
     def fetch_message(self, uid: bytes) -> FetchedMessage | None:
         """Fetch a full message by UID and extract OKTE attachments.
@@ -213,25 +206,6 @@ class ImapSession:
         )
 
     # ----- state mutations ---------------------------------------------
-
-    def mark_processed(self, uid: bytes) -> None:
-        """Tag a successfully processed message with the OKTE keyword.
-
-        On servers that don't support custom keywords this is a no-op:
-        processed-state is tracked in HA Store and we deliberately don't
-        touch ``\\Seen`` (or any other built-in flag) because doing so
-        would mutate mail state that belongs to the user's mail client,
-        not us.
-        """
-        if not self.keyword_supported:
-            return
-        typ, _ = self._conn.uid(
-            "STORE", uid, "+FLAGS", PROCESSED_KEYWORD
-        )
-        if typ != "OK":
-            _LOGGER.warning(
-                "Failed to set %s on UID %s", PROCESSED_KEYWORD, uid
-            )
 
     def archive(self, uid: bytes, archive_folder: str) -> bool:
         """Copy a UID to ``archive_folder`` then mark for deletion.
@@ -267,24 +241,6 @@ class ImapSession:
         except Exception:  # noqa: BLE001
             pass
 
-    # ----- internals ----------------------------------------------------
-
-    def _unprocessed_state_criteria(self) -> list[str]:
-        """Return just the processed-state half of the search criteria.
-
-        On servers that support custom keywords this filters server-side
-        for messages without the ``$OkteProcessed`` keyword, narrowing
-        what we fetch. On servers without keyword support there's no
-        server-side filter at all — processed-state is tracked in HA
-        Store and the coordinator drops already-imported ``(eic, date)``
-        pairs before doing real work, so a re-fetched message costs at
-        most a parse, not a duplicate import.
-        """
-        if self.keyword_supported:
-            return ["NOT", "KEYWORD", PROCESSED_KEYWORD]
-        return []
-
-
 class ImapClient:
     """Connection factory; creates a session per poll cycle."""
 
@@ -317,8 +273,7 @@ class ImapClient:
                 f"SELECT {self._folder!r} failed: {data!r}"
             )
 
-        keyword_supported = _detect_keyword_support(conn, data)
-        return ImapSession(conn, self._folder, keyword_supported=keyword_supported)
+        return ImapSession(conn, self._folder)
 
     def verify_credentials(self) -> None:
         """Open a connection, log in, and disconnect.
@@ -377,31 +332,6 @@ class ImapClient:
 
 # ---------------------------------------------------------------------------
 # Helpers
-
-
-def _detect_keyword_support(conn: imaplib.IMAP4, select_data: list[bytes]) -> bool:
-    """Return True if the server allows arbitrary user keywords.
-
-    Detected via PERMANENTFLAGS containing ``\\*`` in the SELECT response.
-    """
-    for line in select_data:
-        if isinstance(line, bytes):
-            line = line.decode(errors="replace")
-        if "PERMANENTFLAGS" in line and "\\*" in line:
-            return True
-    # Some libraries return PERMANENTFLAGS only via untagged responses.
-    untagged = conn.response("PERMANENTFLAGS")
-    if untagged and untagged[1]:
-        for line in untagged[1]:
-            if isinstance(line, bytes):
-                line = line.decode(errors="replace")
-            if "\\*" in line:
-                return True
-    _LOGGER.debug(
-        "IMAP server does not advertise arbitrary keywords; "
-        "processed-state will be tracked entirely in HA Store."
-    )
-    return False
 
 
 def _imap_quote(value: str) -> str:

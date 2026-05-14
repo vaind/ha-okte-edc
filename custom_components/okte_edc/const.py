@@ -52,9 +52,6 @@ DEFAULT_MAX_BACKFILL: Final = 1000
 # preserves the original From) or add their forwarder to this list.
 DEFAULT_SENDER_ALLOWLIST: Final = "edc@okte.sk"
 
-# IMAP custom keyword used to mark processed messages
-PROCESSED_KEYWORD: Final = "$OkteProcessed"
-
 # OKTE email subject substring (RFC 3501 SUBJECT search is substring-match)
 SUBJECT_SUBSTRING: Final = "[EDC_SZE_7/SZE]"
 

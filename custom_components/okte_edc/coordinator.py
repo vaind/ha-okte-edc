@@ -131,7 +131,6 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.last_poll_at: datetime | None = None
         self.last_successful_poll_at: datetime | None = None
         self.last_poll_stats: dict[str, Any] = {}
-        self.keyword_support: bool | None = None
 
         super().__init__(
             hass,
@@ -162,6 +161,37 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def last_import_summary_for(self, eic: str) -> dict[str, Any]:
         """Return the most-recent-file summary for ``eic`` or an empty dict."""
         return self._last_import_summary.get(eic, {})
+
+    # Number of days of slack to keep in the steady-state SINCE bound.
+    # OKTE has been observed to issue V2/V3 correction files a few days
+    # after the initial publication; this buffer makes sure the search
+    # still picks them up.
+    _CORRECTION_BUFFER_DAYS = 7
+
+    def _compute_search_cutoff(self, scan_window_days: int) -> datetime:
+        """Return the SINCE-bound timestamp for the runtime poll search.
+
+        Steady-state: ``last_processed_date - 7 days`` so the server is
+        only asked for a week or so of mail per cycle. On first run /
+        empty store: fall back to ``today - scan_window_days`` so the
+        initial backfill window is the user-configured default.
+
+        The chosen cutoff is the *more recent* of the two — never wider
+        than the configured backfill, and never narrower than the
+        correction-buffer once steady-state.
+        """
+        now = datetime.now(tz=timezone.utc)
+        scan_cutoff = now - timedelta(days=scan_window_days)
+        if not self._last_processed_versions:
+            return scan_cutoff
+        latest_date = max(d for _eic, d in self._last_processed_versions.keys())
+        steady_cutoff = datetime(
+            latest_date.year,
+            latest_date.month,
+            latest_date.day,
+            tzinfo=timezone.utc,
+        ) - timedelta(days=self._CORRECTION_BUFFER_DAYS)
+        return max(scan_cutoff, steady_cutoff)
 
     def update_from_options(self) -> None:
         """Apply config-entry option changes to runtime state.
@@ -306,32 +336,35 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         )
 
         session = self._client.open_session()
-        self.keyword_support = session.keyword_supported
         matched_count = 0
         processed_count = 0
         skipped_count = 0
         try:
-            # 1. Delete-after-N-days cleanup (only for processed messages).
+            # 1. Delete-after-N-days cleanup. Semantically "old OKTE-
+            # subject mail" — anything older than the cutoff that
+            # matches the integration's subject filter is in scope.
             if cleanup_mode == CLEANUP_DELETE:
                 delete_after = int(
                     self.entry.options.get(
                         OPT_DELETE_AFTER_DAYS, DEFAULT_DELETE_AFTER_DAYS
                     )
                 )
-                cutoff = datetime.now(tz=timezone.utc) - timedelta(
+                cutoff_delete = datetime.now(tz=timezone.utc) - timedelta(
                     days=delete_after
                 )
-                old_uids = session.search_processed_before(cutoff)
+                old_uids = session.search_subject_before(cutoff_delete)
                 if old_uids:
                     session.mark_for_delete(old_uids)
                     session.expunge()
 
-            # 2. Find new messages to process. The SINCE bound keeps the
-            # search cheap on keyword-fallback servers where we have no
-            # server-side processed-state filter at all.
-            cutoff = datetime.now(tz=timezone.utc) - timedelta(
-                days=scan_window_days
-            )
+            # 2. Find new messages. The SINCE bound is the more recent of
+            # the configured scan_window_days fallback (first run / fresh
+            # install) and `last_processed_date - 7 days` (steady-state),
+            # so once the integration is caught up each poll only asks
+            # the server for ~a week of mail. The 7-day buffer covers
+            # OKTE V2/V3 correction files which can arrive a few days
+            # after the original.
+            cutoff = self._compute_search_cutoff(scan_window_days)
             uids = session.search_unprocessed_uids(since=cutoff)
             if max_backfill and len(uids) > max_backfill:
                 _LOGGER.warning(
@@ -379,7 +412,6 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 successful = self._process_message(msg, min_file_date, updates)
                 if successful:
                     processed_count += 1
-                    session.mark_processed(uid)
                     if cleanup_mode == CLEANUP_ARCHIVE:
                         archive_folder = self.entry.options.get(
                             OPT_ARCHIVE_FOLDER, DEFAULT_ARCHIVE_FOLDER

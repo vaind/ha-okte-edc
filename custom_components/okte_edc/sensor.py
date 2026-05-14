@@ -297,7 +297,6 @@ class OkteServiceSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         if self.entity_description.key != SUFFIX_LAST_POLL:
             return None
         attrs: dict[str, Any] = {
-            "keyword_support": self.coordinator.keyword_support,
             "poll_interval_minutes": (
                 self.coordinator.update_interval.total_seconds() / 60
                 if self.coordinator.update_interval

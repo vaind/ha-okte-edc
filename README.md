@@ -136,7 +136,7 @@ sensors:
 Plus a separate per-integration "mailbox" device that exposes:
 
 - `next_mailbox_check` (timestamp) — when the next IMAP poll will fire.
-- `last_mailbox_check` (timestamp) — when the most recent poll attempted, with attributes `keyword_support`, `poll_interval_minutes`, and counts (`matched`, `processed`, `skipped`).
+- `last_mailbox_check` (timestamp) — when the most recent poll attempted, with attributes `poll_interval_minutes` and counts (`matched`, `processed`, `skipped`).
 - `last_successful_check` (timestamp) — when the most recent poll succeeded.
 - `Check mailbox now` button — runs a poll immediately, useful after forwarding a fresh email or to recover from a transient error.
 
@@ -203,17 +203,28 @@ once a day in this window. Outside the window the coordinator stays
 quiet and serves cached data. Polling cadence within the window is also
 configurable (default 30 minutes).
 
-After a message has been processed it's marked with a `$OkteProcessed`
-custom IMAP keyword so the integration never re-processes it. You can
-choose what happens to processed messages:
+The integration treats the mailbox as read-only by default — it never
+sets flags or keywords on your messages and fetches them with
+``BODY.PEEK[]`` so `\Seen` is not toggled either. Processed-state is
+tracked entirely in Home Assistant (per-entry JSON file under
+`.storage/`, keyed by ``(eic, measurement_date)``), so the integration
+never reprocesses a file even across restarts. Once the integration is
+caught up, each poll narrows the IMAP search to roughly the last week
+of mail (`last_processed_date − 7 days` to allow for OKTE's V2/V3
+correction-file lag); first-run / fresh-install polls use the
+configured scan window instead.
+
+You can additionally choose what happens to processed OKTE messages:
 
 - **Leave in place** (default).
-- **Archive** to a folder of your choice.
-- **Delete** after N days.
-
-If the IMAP server doesn't support arbitrary keywords (rare) the
-integration falls back to using `\Seen` for tracking and emits a startup
-warning.
+- **Archive** to a folder of your choice — moved (`COPY` + `DELETE`)
+  immediately after the message is successfully processed.
+- **Delete** after N days — deletes any OKTE-subject message older
+  than N days at the start of each poll cycle, regardless of whether
+  the integration has processed it. A "delete after 30" with a file
+  that's been sitting in the inbox unparsed for a month is in scope;
+  if you only want already-processed mail cleaned up, use "archive"
+  instead.
 
 ## Reconciliation and corrections
 

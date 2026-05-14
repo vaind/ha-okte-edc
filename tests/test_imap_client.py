@@ -142,27 +142,6 @@ def test_imap_quote_folder_with_slash():
     assert _imap_quote("Archive/OKTE") == '"Archive/OKTE"'
 
 
-def test_unprocessed_state_criteria_branches_on_keyword_support():
-    """No server-side state filter at all on keyword-fallback servers.
-
-    Processed-tracking on those servers is handled entirely in HA
-    Store; the IMAP server is not asked to filter or remember anything.
-    """
-    from okte_edc.imap_client import ImapSession
-
-    # We can't easily instantiate an ImapSession without a connection,
-    # so call the unbound method on a fake holder.
-    class _Fake:
-        keyword_supported = False
-
-    criteria = ImapSession._unprocessed_state_criteria(_Fake())
-    assert criteria == []
-
-    _Fake.keyword_supported = True
-    criteria = ImapSession._unprocessed_state_criteria(_Fake())
-    assert criteria == ["NOT", "KEYWORD", "$OkteProcessed"]
-
-
 def test_subject_filter_variants_are_progressively_broader():
     """Three variants, narrow → broad: SUBJECT-full, TEXT-full, TEXT-token.
 
