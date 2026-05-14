@@ -36,7 +36,7 @@ class _FakeRegistry:
         self.renames.append((old_entity_id, new_entity_id))
 
 
-def _patch_registry(monkeypatch, entries):
+def _patch_registry(monkeypatch, entries, orphan_stats: list[str] | None = None):
     import okte_edc as init_module
 
     registry = _FakeRegistry(entries)
@@ -50,6 +50,25 @@ def _patch_registry(monkeypatch, entries):
         "async_entries_for_config_entry",
         lambda reg, entry_id: list(entries),
     )
+
+    # Replace the orphan-clear helper with a stub that records the
+    # statistic_ids it was asked to clear. Real implementation hits
+    # the recorder; we just verify the migration calls into it
+    # correctly.
+    cleared: list[list[str]] = []
+
+    async def _fake_clear(_hass, target_ids):
+        # Pretend orphans existed at the provided target_ids (or pass
+        # nothing if the test didn't seed any).
+        if orphan_stats:
+            cleared.append([t for t in target_ids if t in orphan_stats])
+        else:
+            cleared.append([])
+
+    monkeypatch.setattr(
+        init_module, "_clear_orphan_statistics_at", _fake_clear
+    )
+    registry.cleared = cleared  # type: ignore[attr-defined]
     return registry
 
 
@@ -147,3 +166,30 @@ def test_collision_is_skipped_not_overwritten(monkeypatch):
     registry = _patch_registry(monkeypatch, [old, collider])
     asyncio.run(_migrate_entity_ids(None, _entry()))
     assert registry.renames == []  # no rename attempted
+
+
+def test_orphan_statistics_at_target_are_cleared_before_rename(monkeypatch):
+    """Clear-then-rename sequence when the rename target has orphan stats.
+
+    Reproduces the recorder error users hit otherwise:
+        Cannot rename statistic_id `<old>` to `<new>` because the new
+        statistic_id is already in use.
+    """
+    from okte_edc import _migrate_entity_ids
+
+    old = _RegistryEntry(
+        entity_id="sensor.okte_edc_00000002_shared_imported",
+        unique_id="abc123_24ZZS00000000002_shared_in",
+    )
+    target_id = "sensor.okte_edc_00000002_shared_in"
+    registry = _patch_registry(
+        monkeypatch, [old], orphan_stats=[target_id]
+    )
+    asyncio.run(_migrate_entity_ids(None, _entry()))
+
+    # Orphan-clear was called with the target id, then the rename
+    # happened.
+    assert registry.cleared == [[target_id]]  # type: ignore[attr-defined]
+    assert registry.renames == [
+        ("sensor.okte_edc_00000002_shared_imported", target_id)
+    ]

@@ -92,9 +92,18 @@ async def _migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
     New entities now have ``self.entity_id`` set explicitly. This
     migration brings pre-existing registry entries into line so users
     don't have to remove + re-add the integration to recover.
+
+    Where the rename target's statistic_id is already occupied — by
+    the orphan stats the buggy version wrote there — the recorder will
+    refuse to rename the associated statistic and leave the entity
+    pointing at the wrong statistic_id (worse than the starting
+    state). Clear those orphans first; they're by definition dead
+    (no entity registered at that id, verified above).
     """
     registry = er.async_get(hass)
     prefix = f"{entry.entry_id}_"
+    pending: list[tuple[str, str]] = []
+
     for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
         if not ent.unique_id.startswith(prefix):
             continue
@@ -120,23 +129,62 @@ async def _migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 expected,
             )
             continue
+        pending.append((ent.entity_id, expected))
+
+    if not pending:
+        return
+
+    await _clear_orphan_statistics_at(
+        hass, [new_id for _, new_id in pending]
+    )
+
+    for old_id, new_id in pending:
         try:
-            registry.async_update_entity(
-                ent.entity_id, new_entity_id=expected
-            )
+            registry.async_update_entity(old_id, new_entity_id=new_id)
         except ValueError as exc:
             _LOGGER.warning(
                 "Migration failed for %s -> %s: %s",
-                ent.entity_id,
-                expected,
+                old_id,
+                new_id,
                 exc,
             )
         else:
             _LOGGER.info(
                 "Migrated entity_id %s -> %s",
-                ent.entity_id,
-                expected,
+                old_id,
+                new_id,
             )
+
+
+async def _clear_orphan_statistics_at(
+    hass: HomeAssistant, target_ids: list[str]
+) -> None:
+    """Clear statistics at any of ``target_ids`` that currently have data.
+
+    Called as a prerequisite to renaming entity_ids whose target slot
+    has an orphan statistic (which would otherwise cause the recorder
+    to refuse the rename and leave the entity de-linked from its
+    history).
+    """
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.components.recorder.statistics import (
+        async_list_statistic_ids,
+    )
+
+    existing = await async_list_statistic_ids(hass, set(target_ids))
+    orphan_ids = [meta["statistic_id"] for meta in existing]
+    if not orphan_ids:
+        return
+    _LOGGER.info(
+        "Clearing %d orphan statistic_id(s) ahead of entity_id migration: %s",
+        len(orphan_ids),
+        orphan_ids,
+    )
+    instance = get_instance(hass)
+    instance.async_clear_statistics(orphan_ids)
+    # The clear is queued on the recorder thread; wait for the queue
+    # to drain so the subsequent entity rename sees a clean target.
+    await instance.async_block_till_done()
 
 
 async def _async_update_listener(
