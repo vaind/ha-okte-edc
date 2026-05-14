@@ -180,11 +180,16 @@ async def async_setup_entry(
 
 
 def _service_device_info(entry: ConfigEntry) -> DeviceInfo:
-    """DeviceInfo for the per-config-entry hub."""
+    """DeviceInfo for the per-config-entry hub.
+
+    Deliberately no ``manufacturer`` field: this is an unofficial
+    community integration, and HA's Device-info panel would otherwise
+    render "by OKTE, a.s." beside the device name and falsely imply
+    endorsement.
+    """
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
         name=f"OKTE EDC mailbox ({entry.data.get('host', 'unknown')})",
-        manufacturer="OKTE, a.s.",
         model="IMAP coordinator",
         configuration_url="https://edc.okte.sk",
         entry_type=DeviceEntryType.SERVICE,
@@ -196,7 +201,7 @@ def _eic_device_info(eic: str, role: str, entry: ConfigEntry) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, eic)},
         name=f"OKTE EDC {slug}",
-        manufacturer="OKTE, a.s.",
+        # No `manufacturer`: see `_service_device_info`.
         model=f"SZE settlement ({role})",
         # Surface the full EIC under HA's Device-info panel. The
         # entity_ids / sensor names already use the short_eic slug
