@@ -46,6 +46,7 @@ from .const import (
     OPT_POLL_WINDOW_START,
     OPT_SCAN_WINDOW_DAYS,
     OPT_SENDER_ALLOWLIST,
+    parse_sender_allowlist,
 )
 from .coordinator import discover_eics
 from .imap_client import (
@@ -72,6 +73,19 @@ REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
 
 def _unique_id(host: str, port: int, username: str) -> str:
     return f"{username}@{host}:{port}"
+
+
+def _compose_initial_allowlist(discovered_senders: list[str]) -> str:
+    """Return the comma-separated allowlist to seed the entry options with.
+
+    The documented OKTE production sender is always included; anything
+    discovery observed is merged in on top so forwarded-mailbox setups
+    work without manual editing. Returned values are lowercased,
+    deduplicated, and sorted.
+    """
+    addresses = {addr.lower() for addr in discovered_senders or []}
+    addresses.update(parse_sender_allowlist(DEFAULT_SENDER_ALLOWLIST))
+    return ", ".join(sorted(a for a in addresses if a))
 
 
 class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -248,14 +262,15 @@ class OkteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Seed the sender allowlist with the From addresses we
             # actually saw during discovery — this auto-handles users
             # who forward OKTE mail from another mailbox (their
-            # forwarder address ends up here). Falls back to the
-            # documented OKTE address only if we didn't observe any
-            # sender at all.
+            # forwarder address ends up here). The documented OKTE
+            # production sender is *always* included on top, even if
+            # discovery only saw forwards: otherwise an OKTE email that
+            # arrives directly later (because the user removed the
+            # forwarder, or registered their primary address with OKTE,
+            # or just gets a direct copy via a CC) would get rejected.
             initial_options = {
-                OPT_SENDER_ALLOWLIST: (
-                    ", ".join(self._discovered_senders)
-                    if self._discovered_senders
-                    else DEFAULT_SENDER_ALLOWLIST
+                OPT_SENDER_ALLOWLIST: _compose_initial_allowlist(
+                    self._discovered_senders
                 ),
             }
             # Title intentionally omits the username (a likely email
