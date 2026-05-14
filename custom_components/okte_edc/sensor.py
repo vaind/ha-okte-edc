@@ -198,6 +198,13 @@ def _eic_device_info(eic: str, role: str, entry: ConfigEntry) -> DeviceInfo:
         name=f"OKTE EDC {slug}",
         manufacturer="OKTE, a.s.",
         model=f"SZE settlement ({role})",
+        # Surface the full EIC under HA's Device-info panel. The
+        # entity_ids / sensor names already use the short_eic slug
+        # for stability and readability; serial_number gives users a
+        # one-look way to recover the full 16-char OKTE identifier
+        # whenever they need it (matching against a bill, the OKTE
+        # portal, etc.).
+        serial_number=eic,
         configuration_url="https://edc.okte.sk",
         via_device=(DOMAIN, entry.entry_id),
     )
