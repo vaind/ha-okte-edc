@@ -167,6 +167,9 @@ def import_hourly_statistics(
         "source": DOMAIN,
         "statistic_id": statistic_id,
         "unit_of_measurement": "kWh",
+        # Matches `EnergyConverter.UNIT_CLASS`. Omitting this is
+        # deprecated and slated for removal in HA 2026.11.
+        "unit_class": "energy",
     }
     # HA 2025.3+ migrated from `has_mean=False` to
     # `mean_type=StatisticMeanType.NONE`. The old field is deprecated
