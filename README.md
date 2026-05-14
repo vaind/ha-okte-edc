@@ -200,28 +200,6 @@ in the off-takers' `shared_in`.
   different addresses into a single Energy view produces meaningless
   combined totals.
 
-### Migrating from a pre-external-statistics install
-
-Earlier releases wrote statistics under the cumulative-kWh sensor's
-own entity_id (`sensor.okte_edc_<slug>_<suffix>`). Those are now
-orphans — they're not updated anymore and don't show today's
-post-fix data. To migrate:
-
-1. Update the integration (HACS → reinstall, or restart HA after
-   pulling the latest commit).
-2. On the **OKTE EDC mailbox** service device, press
-   **Full mailbox scan**. This bypasses the dynamic SINCE bound and
-   re-imports every OKTE-subject email in the configured folder. The
-   recompute writes the data as external statistics under the new
-   `okte_edc:<short_eic>_<suffix>` IDs.
-3. Re-wire the Energy dashboard: remove the old `sensor.okte_edc_…`
-   entries from each slot and add the new external sources by their
-   `OKTE EDC <short_eic> …` names.
-4. Optional cleanup: **Developer Tools → Statistics**, filter by
-   `okte`, and click **Fix issue → Delete** on any `sensor.okte_edc_…`
-   rows that show "no state available". Those are the old entity-
-   linked orphans.
-
 ### Solar production is partially virtual
 
 The `shared_in` sensor lands in the "Solar production" slot because
