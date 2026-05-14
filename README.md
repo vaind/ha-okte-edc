@@ -143,6 +143,47 @@ is the lowercased last 8 alphanumeric characters of the EIC.
    OKTE settlement emails.
 4. On the next step, select which discovered EICs you want to import.
 
+## Energy dashboard mapping
+
+The integration creates one HA device per EIC; it does *not* configure
+the Energy dashboard for you. After install, go to
+**Settings → Dashboards → Energy** (see the [official Home Assistant
+Energy docs](https://www.home-assistant.io/docs/energy/) for the basics)
+and assign sensors as follows:
+
+| Sensor                   | Source LIN | Energy dashboard slot  |
+| ------------------------ | ---------- | ---------------------- |
+| Off-take `grid_import`   | CPS15      | **Grid consumption**   |
+| Off-take `shared_in`     | SHA15      | **Solar production** (the sharing scheme acts as a free-energy source from the off-taker's side) |
+| Producer `grid_return`   | CPM15      | **Return to grid**     |
+
+`total_consumption` (off-take PS15) and `total_export` (producer PM15)
+are reference / informational sensors and don't map to any dashboard
+slot. `shared_out` (producer SHA15) is informational too — it tells
+you how much you gave to the sharing group, which is already reflected
+in the off-takers' `shared_in`.
+
+### Same-address vs different-address EICs
+
+- **Multiple EICs at the same physical location** (e.g. a house plus a
+  separately metered workshop): add each one's sensor to the same
+  Energy-dashboard slot. Home Assistant sums them.
+- **EICs at different addresses**: don't combine them into one
+  dashboard. Either pick only the local EIC during onboarding, or run
+  a separate Home Assistant instance for each location. Mixing
+  different addresses into a single Energy view produces meaningless
+  combined totals.
+
+### Solar production is partially virtual
+
+The `shared_in` sensor lands in the "Solar production" slot because
+that's how the Energy dashboard frames *free* energy that wasn't
+bought from the grid. The integration cannot report your gross PV
+yield — OKTE only sees energy that crossed your meter, not what your
+inverter self-consumed. If you want true gross PV production, you'll
+need a separate sensor from your inverter integration; you can have
+both in the dashboard at the same time.
+
 ## Polling and email cleanup
 
 The integration polls IMAP only within a configurable time window
@@ -215,11 +256,13 @@ All settings live in the integration's **Configure** screen:
 - **Reconciliation delta is high.** Open an issue with the file
   attached (after redacting your EIC) — this almost always indicates
   either a parser bug or unusual data from OKTE.
-- **Statistics aren't appearing in the Energy dashboard.** Check that
-  the sensor entity_id matches `sensor.okte_<8-chars>_<suffix>` and
-  that the device class / state class are correctly recognised; the
-  HA Developer Tools → Statistics page will say if a sensor is being
-  picked up.
+- **Statistics aren't appearing in the Energy dashboard.** First check
+  you've wired the sensors into the right slots — see
+  [Energy dashboard mapping](#energy-dashboard-mapping). If the
+  mapping looks right, confirm that the sensor entity_id matches
+  `sensor.okte_<8-chars>_<suffix>` and that the device class / state
+  class are correctly recognised; the **Developer Tools → Statistics**
+  page will say whether a sensor is being picked up.
 
 ## Development
 
