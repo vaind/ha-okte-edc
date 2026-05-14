@@ -136,6 +136,26 @@ def parse_sender_allowlist(raw: str | None) -> list[str]:
     ]
 
 
+def statistic_id_for(eic: str, suffix: str) -> str:
+    """Return the long-term statistics ID for ``(eic, suffix)``.
+
+    Must equal the entity_id that Home Assistant derives for the
+    corresponding sensor; otherwise the imported statistics row is
+    orphaned and the Energy dashboard never picks it up.
+
+    Our sensors use ``_attr_has_entity_name = True``, so HA composes the
+    entity_id from the device-name slug + the entity translation-key
+    slug. The device name template is ``"OKTE EDC <short_eic>"``, which
+    slugifies to ``okte_edc_<short_eic>``. The entity-name slug is the
+    suffix itself (``grid_import``, ``shared_in`` …).
+
+    Keeping the formula in one place documents the coupling and makes
+    sure the coordinator's write side and the sensor's read side can't
+    drift apart silently.
+    """
+    return f"sensor.{DOMAIN}_{short_eic(eic)}_{suffix}"
+
+
 def short_eic(eic: str) -> str:
     """Return the lowercase last 8 alphanumeric characters of an EIC.
 

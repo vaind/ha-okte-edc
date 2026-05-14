@@ -52,6 +52,28 @@ def test_short_eic_is_lowercase_8_alnum():
     assert short_eic("24ZZSVYR00000099") == "00000099"
 
 
+def test_statistic_id_matches_ha_entity_id_derivation():
+    """Pin the statistic_id format.
+
+    Sensors use ``has_entity_name=True`` plus a device named
+    ``"OKTE EDC <slug>"``, which HA slugifies to ``okte_edc_<slug>`` and
+    composes with the entity translation-key into
+    ``sensor.okte_edc_<slug>_<suffix>``. The coordinator's import path
+    must construct the matching statistic_id or the Energy dashboard
+    silently misses every imported row.
+    """
+    from okte_edc.const import statistic_id_for
+
+    assert (
+        statistic_id_for("24ZZS00000000001", "grid_import")
+        == "sensor.okte_edc_00000001_grid_import"
+    )
+    assert (
+        statistic_id_for("24ZZSVYR00000099", "shared_out")
+        == "sensor.okte_edc_00000099_shared_out"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 

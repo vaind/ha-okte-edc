@@ -109,7 +109,12 @@ DIAG_FILE_VERSION = SensorEntityDescription(
 DIAG_RECON_DELTA = SensorEntityDescription(
     key=SUFFIX_RECONCILIATION_DELTA,
     translation_key=SUFFIX_RECONCILIATION_DELTA,
-    device_class=SensorDeviceClass.ENERGY,
+    # Deliberately no device_class. The value is a per-file diagnostic
+    # snapshot (the largest reconciliation drift observed in the most
+    # recent MSCONS file), not a cumulative energy reading. HA rejects
+    # device_class=ENERGY with state_class=MEASUREMENT — ENERGY requires
+    # total / total_increasing. We want measurement semantics on a
+    # value that happens to be expressed in kWh.
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
     entity_category=EntityCategory.DIAGNOSTIC,
@@ -156,7 +161,12 @@ class OkteSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         self._eic = eic
         slug = short_eic(eic)
         self._attr_unique_id = f"{entry.entry_id}_{eic}_{description.key}"
-        self._attr_suggested_object_id = f"okte_{slug}_{description.key}"
+        # NOTE: deliberately no _attr_suggested_object_id. With
+        # _attr_has_entity_name = True the entity_id is composed by HA
+        # from the device-name slug ("OKTE EDC <slug>" → okte_edc_<slug>)
+        # and the entity translation-key slug. The matching statistic_id
+        # is constructed via const.statistic_id_for so the two stay in
+        # sync.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, eic)},
             name=f"OKTE EDC {slug}",

@@ -71,7 +71,7 @@ from .const import (
     SUFFIX_RECONCILIATION_DELTA,
     detect_role,
     parse_sender_allowlist,
-    short_eic,
+    statistic_id_for,
 )
 from .imap_client import (
     Attachment,
@@ -185,7 +185,7 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 key = (eic, suffix)
                 if key in self._cumulative_seeded:
                     continue
-                statistic_id = f"sensor.okte_{short_eic(eic)}_{suffix}"
+                statistic_id = statistic_id_for(eic, suffix)
                 last_sum, _ = await get_last_cumulative(self.hass, statistic_id)
                 self._last_cumulative[key] = last_sum or 0.0
                 self._cumulative_seeded.add(key)
@@ -413,7 +413,7 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             key = (data.eic, suffix)
             starting_sum = self._last_cumulative.get(key, 0.0)
             rows = build_statistic_data(buckets, starting_sum=starting_sum)
-            statistic_id = f"sensor.okte_{short_eic(data.eic)}_{suffix}"
+            statistic_id = statistic_id_for(data.eic, suffix)
             import_hourly_statistics(self.hass, statistic_id, None, rows)
             if rows:
                 self._last_cumulative[key] = rows[-1].get("sum", starting_sum)
