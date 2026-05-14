@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -91,6 +92,15 @@ from .statistics import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Persistence schema for ``Store`` — bump on any incompatible change to
+# the on-disk shape.
+_STORE_VERSION = 1
+
+
+def _state_store_key(entry: ConfigEntry) -> str:
+    """Per-entry storage key. One file per integration instance."""
+    return f"{DOMAIN}.{entry.entry_id}.state"
+
 
 class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Coordinator that ingests OKTE MSCONS files into HA statistics."""
@@ -102,6 +112,12 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self._cumulative_seeded: set[tuple[str, str]] = set()
         self._last_cumulative: dict[tuple[str, str], float] = {}
         self._last_processed_versions: dict[tuple[str, date], int] = {}
+        # Persistent processed-state. Survives HA restarts and is the
+        # authoritative source of truth on keyword-fallback IMAP servers
+        # (where we can't rely on an IMAP-side marker). Loaded lazily on
+        # the first refresh; saved after every poll that touched it.
+        self._store: Store = Store(hass, _STORE_VERSION, _state_store_key(entry))
+        self._store_loaded = False
         # The first refresh always polls — otherwise restarting HA outside
         # the configured window would leave entities unavailable until the
         # next in-window cycle, even if a fresh email has already arrived.
@@ -143,6 +159,8 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         if not self._enabled_eics:
             return self.data or {}
 
+        await self._load_state_if_needed()
+
         now_local = _local_now(self.entry)
         in_window = _within_window(self.entry, now_local)
         if not in_window and self._first_refresh_done:
@@ -172,7 +190,56 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         for eic, values in new_data.items():
             merged.setdefault(eic, {}).update(values)
         self._first_refresh_done = True
+        if new_data:
+            # Only write the store when something actually changed in
+            # `_last_processed_versions`. The `new_data` dict is populated
+            # in `_import_data`, which is the same path that mutates the
+            # versions map, so non-empty `new_data` implies a change.
+            await self._save_state()
         return merged
+
+    # ----- persistent state ---------------------------------------------
+
+    async def _load_state_if_needed(self) -> None:
+        """Hydrate ``_last_processed_versions`` from HA Store on first use.
+
+        Done lazily on the first refresh rather than in ``__init__`` so the
+        coordinator constructor stays sync. Subsequent calls are no-ops.
+        """
+        if self._store_loaded:
+            return
+        raw = await self._store.async_load() or {}
+        versions = raw.get("last_processed_versions", {}) or {}
+        recovered = 0
+        for eic, by_date in versions.items():
+            if not isinstance(by_date, dict):
+                continue
+            for date_iso, version in by_date.items():
+                try:
+                    d = date.fromisoformat(date_iso)
+                    v = int(version)
+                except (TypeError, ValueError):
+                    continue
+                self._last_processed_versions[(eic, d)] = v
+                recovered += 1
+        self._store_loaded = True
+        if recovered:
+            _LOGGER.debug(
+                "Loaded %d processed-state entries from %s",
+                recovered,
+                self._store.key,
+            )
+
+    async def _save_state(self) -> None:
+        """Persist ``_last_processed_versions`` to HA Store."""
+        nested: dict[str, dict[str, int]] = {}
+        for (eic, d), version in self._last_processed_versions.items():
+            nested.setdefault(eic, {})[d.isoformat()] = version
+        await self._store.async_save({"last_processed_versions": nested})
+
+    async def async_remove_storage(self) -> None:
+        """Delete the persistent state file for this entry."""
+        await self._store.async_remove()
 
     # ----- seeding ------------------------------------------------------
 

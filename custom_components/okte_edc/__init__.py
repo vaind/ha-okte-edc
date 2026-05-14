@@ -8,8 +8,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
+from homeassistant.helpers.storage import Store
+
 from .const import DOMAIN
-from .coordinator import OkteCoordinator
+from .coordinator import (
+    OkteCoordinator,
+    _STORE_VERSION,
+    _state_store_key,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +50,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up the per-entry persistent state file when the user removes the integration."""
+    store = Store(hass, _STORE_VERSION, _state_store_key(entry))
+    await store.async_remove()
 
 
 async def _async_update_listener(

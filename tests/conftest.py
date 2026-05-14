@@ -124,6 +124,25 @@ def _install_ha_stubs() -> None:
     update_coordinator.CoordinatorEntity = _CoordinatorEntity
     update_coordinator.UpdateFailed = _UpdateFailed
 
+    # homeassistant.helpers.storage
+    storage = types.ModuleType("homeassistant.helpers.storage")
+
+    class _Store:
+        def __init__(self, hass, version, key):
+            self.key = key
+            self._version = version
+
+        async def async_load(self):
+            return None
+
+        async def async_save(self, data):
+            return None
+
+        async def async_remove(self):
+            return None
+
+    storage.Store = _Store
+
     # homeassistant.helpers.entity_platform
     entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
     entity_platform.AddEntitiesCallback = object
@@ -164,6 +183,7 @@ def _install_ha_stubs() -> None:
     helpers.entity_platform = entity_platform
     helpers.device_registry = device_registry
     helpers.selector = selector
+    helpers.storage = storage
 
     # homeassistant.components.sensor / recorder
     components = types.ModuleType("homeassistant.components")
@@ -204,6 +224,7 @@ def _install_ha_stubs() -> None:
     sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
     sys.modules["homeassistant.helpers.device_registry"] = device_registry
     sys.modules["homeassistant.helpers.selector"] = selector
+    sys.modules["homeassistant.helpers.storage"] = storage
     sys.modules["homeassistant.components"] = components
     sys.modules["homeassistant.components.sensor"] = sensor
     sys.modules["homeassistant.components.diagnostics"] = diagnostics_mod
