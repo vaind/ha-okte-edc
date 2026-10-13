@@ -1,0 +1,46 @@
+name: E2E (live)
+
+# Fails when the newest Home Assistant stops accepting .python-version (see
+# tests_e2e/test_home_assistant_live.py for why that would go unnoticed).
+# A failed scheduled run notifies by GitHub's usual workflow-failure email.
+
+on:
+  schedule:
+    # Off the hour to dodge the scheduler's top-of-hour backlog.
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tests_e2e/**"
+      - ".python-version"
+      - ".github/workflows/e2e.yml"
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: E2E tests against live services
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up uv  # Python version from .python-version
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          enable-cache: true
+
+      # See ci.yml: setup-uv does not create the venv the later steps use.
+      - name: Create virtualenv
+        run: uv venv .venv
+
+      - name: Install dev dependencies
+        run: uv pip install --group dev
+
+      - name: pytest (e2e, live network)
+        run: .venv/bin/python -m pytest tests_e2e/

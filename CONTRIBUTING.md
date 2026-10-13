@@ -3,9 +3,17 @@
 ## Quick start
 
 ```bash
-python3 -m pip install --user defusedxml pytest
-python3 -m pytest tests/
+uv venv .venv
+uv pip install --group dev
+.venv/bin/python -m pytest tests/
 ```
+
+uv takes the Python version from `.python-version`, which tracks the one
+Python minor the newest Home Assistant runs on. The test suite stubs
+Home Assistant, so it cannot notice HA moving to a newer Python; the
+daily e2e run (`tests_e2e/`, live PyPI lookup) fails when it does. The
+dev tools are listed once, in the `dev` dependency group in
+`pyproject.toml`, which CI installs the same way.
 
 Tests cover the MSCONS parser, hourly aggregation (including
 spring-forward 23-hour and fall-back 25-hour days), reconciliation, the

@@ -1,0 +1,13 @@
+# This repository is a Home Assistant HACS custom component, not a published
+# Python package. This file only holds dev-tooling configuration.
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "defusedxml>=0.7.1",  # the integration's own requirement (manifest.json)
+    "packaging",  # tests_e2e: PEP 440 specifier matching
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
