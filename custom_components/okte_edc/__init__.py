@@ -16,7 +16,6 @@ from .coordinator import (
     _STORE_VERSION,
     _state_store_key,
 )
-from .sensor import _service_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,15 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.title,
         )
 
-    # Pre-register the per-entry "mailbox" service device so that the
-    # per-EIC devices the sensor platform registers (with
-    # `via_device=(DOMAIN, entry.entry_id)`) don't reference a
-    # non-existent parent.
     device_reg = dr.async_get(hass)
-    device_reg.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        **_service_device_info(entry),
-    )
 
     # Earlier releases set `manufacturer="OKTE, a.s."` on every device
     # via DeviceInfo, which the device registry then cached. Removing

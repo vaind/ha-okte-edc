@@ -23,6 +23,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -176,7 +177,14 @@ async def async_setup_entry(
 ) -> None:
     """Create sensor entities for each enabled EIC + service-level sensors."""
     coordinator: OkteCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SensorEntity] = list(_iter_entities(entry, coordinator))
+    # Per-EIC devices reference the mailbox device by its registry id,
+    # so it has to be registered before they are.
+    service_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **_service_device_info(entry)
+    )
+    entities: list[SensorEntity] = list(
+        _iter_entities(entry, coordinator, service_device.id)
+    )
     async_add_entities(entities)
 
 
@@ -197,7 +205,7 @@ def _service_device_info(entry: ConfigEntry) -> DeviceInfo:
     )
 
 
-def _eic_device_info(eic: str, role: str, entry: ConfigEntry) -> DeviceInfo:
+def _eic_device_info(eic: str, role: str, service_device_id: str) -> DeviceInfo:
     slug = short_eic(eic)
     return DeviceInfo(
         identifiers={(DOMAIN, eic)},
@@ -212,21 +220,24 @@ def _eic_device_info(eic: str, role: str, entry: ConfigEntry) -> DeviceInfo:
         # portal, etc.).
         serial_number=eic,
         configuration_url="https://edc.okte.sk",
-        via_device=(DOMAIN, entry.entry_id),
+        via_device_id=service_device_id,
     )
 
 
 def _iter_entities(
-    entry: ConfigEntry, coordinator: OkteCoordinator
+    entry: ConfigEntry, coordinator: OkteCoordinator, service_device_id: str
 ) -> Iterable[SensorEntity]:
     for eic, role in coordinator.enabled_eics.items():
-        for description in ENERGY_DESCRIPTIONS[role].values():
-            yield OkteEicSensor(coordinator, entry, eic, role, description)
-        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_LAST_IMPORT)
-        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_FILE_VERSION)
-        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_RECON_DELTA)
-        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_MEASUREMENT_DATE)
-        yield OkteEicSensor(coordinator, entry, eic, role, DIAG_PARSE_WARNINGS)
+        device_info = _eic_device_info(eic, role, service_device_id)
+        for description in (
+            *ENERGY_DESCRIPTIONS[role].values(),
+            DIAG_LAST_IMPORT,
+            DIAG_FILE_VERSION,
+            DIAG_RECON_DELTA,
+            DIAG_MEASUREMENT_DATE,
+            DIAG_PARSE_WARNINGS,
+        ):
+            yield OkteEicSensor(coordinator, entry, eic, device_info, description)
     yield OkteServiceSensor(coordinator, entry, SVC_NEXT_POLL)
     yield OkteServiceSensor(coordinator, entry, SVC_LAST_POLL)
     yield OkteServiceSensor(coordinator, entry, SVC_LAST_SUCCESSFUL_POLL)
@@ -243,7 +254,7 @@ class OkteEicSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         coordinator: OkteCoordinator,
         entry: ConfigEntry,
         eic: str,
-        role: str,
+        device_info: DeviceInfo,
         description: SensorEntityDescription,
     ) -> None:
         super().__init__(coordinator)
@@ -258,7 +269,7 @@ class OkteEicSensor(CoordinatorEntity[OkteCoordinator], SensorEntity):
         # `statistic_id_for` in const.py.
         self.entity_id = entity_id_for(eic, description.key)
         self._attr_unique_id = f"{entry.entry_id}_{eic}_{description.key}"
-        self._attr_device_info = _eic_device_info(eic, role, entry)
+        self._attr_device_info = device_info
 
     @property
     def native_value(self) -> Any:

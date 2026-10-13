@@ -94,8 +94,9 @@ Read in this order if you're new:
    and the gunzip cap live here.
 4. `coordinator.py` — DataUpdateCoordinator. Dynamic SINCE cutoff, HA Store
    persistence, per-EIC dedup, cleanup actions.
-5. `sensor.py` + `button.py` — entity layer. `_service_device_info` is shared
-   by `__init__.py`'s pre-registration call.
+5. `sensor.py` + `button.py` — entity layer. The sensor platform registers
+   the mailbox device first: per-EIC devices link to it by registry id
+   (`via_device_id`).
 6. `config_flow.py` — three-step initial flow (creds → folder → EICs)
    plus a post-setup info page, options flow with rescan, reauth.
 
