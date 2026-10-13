@@ -32,7 +32,9 @@ def test_sensor_count_per_eic_and_service():
     Service: 3 timestamps + 1 issue count = 4. Total 8 + 8 + 4 = 20."""
     from okte_edc.sensor import _iter_entities
 
-    entities = list(_iter_entities(_FakeEntry(), _FakeCoordinator()))
+    entities = list(
+        _iter_entities(_FakeEntry(), _FakeCoordinator(), "service-device-id")
+    )
     assert len(entities) == 20
 
 
@@ -45,7 +47,9 @@ def test_service_sensors_present():
     )
     from okte_edc.sensor import OkteServiceSensor, _iter_entities
 
-    entities = list(_iter_entities(_FakeEntry(), _FakeCoordinator()))
+    entities = list(
+        _iter_entities(_FakeEntry(), _FakeCoordinator(), "service-device-id")
+    )
     service_keys = {
         e.entity_description.key
         for e in entities
@@ -63,7 +67,9 @@ def test_new_per_eic_diagnostic_sensors_present():
     from okte_edc.const import SUFFIX_MEASUREMENT_DATE, SUFFIX_PARSE_WARNINGS
     from okte_edc.sensor import OkteEicSensor, _iter_entities
 
-    entities = list(_iter_entities(_FakeEntry(), _FakeCoordinator()))
+    entities = list(
+        _iter_entities(_FakeEntry(), _FakeCoordinator(), "service-device-id")
+    )
     keys_per_eic: dict[str, set[str]] = {}
     for e in entities:
         if not isinstance(e, OkteEicSensor):
