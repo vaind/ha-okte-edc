@@ -192,7 +192,9 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     # still picks them up.
     _CORRECTION_BUFFER_DAYS = 7
 
-    def _compute_search_cutoff(self, scan_window_days: int) -> datetime:
+    def _compute_search_cutoff(
+        self, scan_window_days: int, *, now: datetime | None = None
+    ) -> datetime:
         """Return the SINCE-bound timestamp for the runtime poll search.
 
         Steady-state: ``last_processed_date - 7 days`` so the server is
@@ -203,8 +205,12 @@ class OkteCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         The chosen cutoff is the *more recent* of the two — never wider
         than the configured backfill, and never narrower than the
         correction-buffer once steady-state.
+
+        ``now`` defaults to the wall clock; tests pin it so the result
+        doesn't depend on the date the suite runs.
         """
-        now = datetime.now(tz=timezone.utc)
+        if now is None:
+            now = datetime.now(tz=timezone.utc)
         scan_cutoff = now - timedelta(days=scan_window_days)
         if not self._last_processed_versions:
             return scan_cutoff

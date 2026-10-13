@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+# Pinned so the expected cutoffs don't drift with the date the suite runs.
+_NOW = datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc)
+
 
 def _build_coordinator(monkeypatch):
     import okte_edc.coordinator as coord_module
@@ -44,10 +47,8 @@ def _build_coordinator(monkeypatch):
 def test_first_run_uses_scan_window(monkeypatch):
     """No stored history → SINCE = today − scan_window_days."""
     coord = _build_coordinator(monkeypatch)
-    now = datetime.now(tz=timezone.utc)
-    cutoff = coord._compute_search_cutoff(scan_window_days=30)
-    delta = now - cutoff
-    assert 29 <= delta.days <= 30  # ~30, allow for sub-second drift
+    cutoff = coord._compute_search_cutoff(scan_window_days=30, now=_NOW)
+    assert cutoff == _NOW - timedelta(days=30)
 
 
 def test_steady_state_uses_correction_buffer(monkeypatch):
@@ -57,7 +58,7 @@ def test_steady_state_uses_correction_buffer(monkeypatch):
         ("24ZZS00000000001", date(2026, 5, 12)): 1,
         ("24ZZS00000000002", date(2026, 5, 10)): 1,
     }
-    cutoff = coord._compute_search_cutoff(scan_window_days=30)
+    cutoff = coord._compute_search_cutoff(scan_window_days=30, now=_NOW)
     expected = datetime(2026, 5, 12, tzinfo=timezone.utc) - timedelta(days=7)
     assert cutoff == expected
 
@@ -72,11 +73,7 @@ def test_uses_more_recent_of_the_two(monkeypatch):
     """
     coord = _build_coordinator(monkeypatch)
     coord._last_processed_versions = {
-        # Pretend last run was a year ago.
-        ("24ZZS00000000001", date(2025, 1, 1)): 1,
+        ("24ZZS00000000001", (_NOW - timedelta(days=365)).date()): 1,
     }
-    cutoff = coord._compute_search_cutoff(scan_window_days=30)
-    now = datetime.now(tz=timezone.utc)
-    delta = now - cutoff
-    # ~30 days, not 365+
-    assert 29 <= delta.days <= 30
+    cutoff = coord._compute_search_cutoff(scan_window_days=30, now=_NOW)
+    assert cutoff == _NOW - timedelta(days=30)
